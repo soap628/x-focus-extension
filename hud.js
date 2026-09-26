@@ -44,7 +44,7 @@
       '<label class="language-field"><span data-i18n="language"></span><select class="language-select" data-i18n-aria="language"><option value="zh-CN">简体中文</option><option value="en">English</option></select></label>',
       '<div class="panel-position"><span data-i18n="panelPosition"></span><div class="position-controls"><button class="dock-left" type="button" data-i18n="dockLeft"></button><button class="dock-right" type="button" data-i18n="dockRight"></button><button class="position-auto" type="button" data-i18n="autoPosition"></button></div><p class="layout-help" data-i18n="layoutHelp"></p></div>',
       '<div class="correct"><span data-i18n="correctPosts"></span><button data-kind="posts" data-amount="-1" data-i18n-aria="postsMinus">−</button><button data-kind="posts" data-amount="1" data-i18n-aria="postsPlus">+</button></div><div class="correct"><span data-i18n="correctReplies"></span><button data-kind="replies" data-amount="-1" data-i18n-aria="repliesMinus">−</button><button data-kind="replies" data-amount="1" data-i18n-aria="repliesPlus">+</button></div>',
-      '<div class="settings-links"><a class="profile-link" href="https://x.com/" target="_blank" rel="noopener noreferrer" data-i18n="profileLink"></a><a href="https://x.com/i/account_analytics" target="_blank" rel="noopener noreferrer" data-i18n="analyticsLink"></a></div><button class="text-btn tracking-toggle" type="button"></button><p class="help" data-i18n="settingsHelp"></p></section>',
+      '<div class="settings-links"><a class="profile-link" href="https://x.com/" target="_blank" rel="noopener noreferrer" data-i18n="profileLink"></a><a href="https://x.com/i/account_analytics" target="_blank" rel="noopener noreferrer" data-i18n="analyticsLink"></a></div><button class="save backup-open" type="button" data-i18n="localBackup"></button><button class="text-btn tracking-toggle" type="button"></button><p class="help" data-i18n="settingsHelp"></p></section>',
       '<div class="error" role="alert" hidden></div><div class="toast" role="status" hidden></div><div class="reward-float" role="status" hidden></div></div><button class="orb" data-i18n-aria="expand" hidden><span class="orb-emblem">' + emblem + '</span><span class="orb-level">01</span><span class="orb-loot" hidden></span><i></i></button></aside>'
     ].join('');
     (document.body || document.documentElement).append(host);
@@ -376,6 +376,7 @@
     $('form').addEventListener('submit', async event => { event.preventDefault(); await command({ command: 'goals', posts: Number($('input[name="posts"]').value), replies: Number($('input[name="replies"]').value) }, 'saved'); });
     shadow.querySelectorAll('.correct button').forEach(button => button.addEventListener('click', () => { void command({ command: 'adjust', kind: button.dataset.kind, amount: Number(button.dataset.amount) }); }));
     $('.tracking-toggle').addEventListener('click', () => { if (model) void command({ command: 'tracking', enabled: !model.enabled }); });
+    $('.backup-open').addEventListener('click', () => { void command({ command: 'open-backups' }); });
     $('.language-select').addEventListener('change', async event => {
       if (languageBusy) return; languageBusy = true; $('.language-select').disabled = true;
       try { await command({ command: 'language', language: event.target.value }, 'languageSaved'); }

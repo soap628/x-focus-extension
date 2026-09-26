@@ -19,7 +19,8 @@ function demoState() {
 let state = demoState();
 function apply(action) { const now = new Date(); state = settleRewards(state, reduce(state, action, now), action, now); }
 const hud = XFocusHUD.mount({ onCommand: async action => {
-  if (action.command === 'open-chest') state = openChest(state);
+  if (action.command === 'open-backups') window.open('sidepanel.html?demo=1#backup', '_blank', 'noopener');
+  else if (action.command === 'open-chest') state = openChest(state);
   else if (action.command !== 'scan-now') {
     apply(hudAction(action, state));
     if (action.command === 'hud-preferences') localStorage.setItem('xFocusPreviewHudPreferences', JSON.stringify(state.hudPreferences));

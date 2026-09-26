@@ -23,7 +23,7 @@ function setup() {
   const hud = context.XFocusHUD.mount({ getBounds: () => ({ left: 410, right: 1510 }), onCommand: async message => {
     commands.push(message); await tick();
     if (message.command === 'open-chest') state = openChest(state, undefined, now, () => 0);
-    else if (message.command !== 'scan-now') { const action = hudAction(message, state); state = settleRewards(state, reduce(state, action, now), action, now); }
+    else if (!['scan-now', 'open-backups'].includes(message.command)) { const action = hudAction(message, state); state = settleRewards(state, reduce(state, action, now), action, now); }
     return hudSummary(state, now);
   } });
   hud.update(hudSummary(state, now)); hud.setConnection({ status: 'ready', code: 'ready', message: '自动记录已连接，等待本页活动' });
@@ -46,6 +46,16 @@ test('mini capture indicator opens diagnostics and distinguishes saved actions f
   assert.equal(q('.scan-now').disabled, false);
   e.hud.setConnection({ status: 'error', code: 'stopped' });
   assert.equal(q('.scan-now').disabled, true, 'a destroyed extension still requires a reload');
+  e.hud.destroy();
+});
+
+test('the HUD backup entry only requests the private options page without carrying records', async () => {
+  const e = setup(), before = JSON.stringify(e.state());
+  e.root.querySelector('.settings-toggle').click();
+  e.root.querySelector('.backup-open').click();
+  await tick(); await tick();
+  assert.equal(JSON.stringify(e.commands.at(-1)), JSON.stringify({ command: 'open-backups' }));
+  assert.equal(JSON.stringify(e.state()), before);
   e.hud.destroy();
 });
 

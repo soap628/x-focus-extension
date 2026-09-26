@@ -5,6 +5,8 @@ import vm from 'node:vm';
 import { parseHTML } from 'linkedom';
 import * as core from '../core.js';
 import * as i18n from '../options-i18n.js';
+import * as assessment from '../assessment.js';
+import { backupComparableState } from '../local-backup.js';
 
 const html = fs.readFileSync(new URL('../sidepanel.html', import.meta.url), 'utf8');
 const app = fs.readFileSync(new URL('../app.js', import.meta.url), 'utf8').replace(/^import .+;\r?\n/gm, '');
@@ -18,7 +20,7 @@ function uiStrings(document) {
   return [copy.textContent, ...Array.from(copy.querySelectorAll('[aria-label],[placeholder],[title]')).flatMap(node => ['aria-label', 'placeholder', 'title'].map(name => node.getAttribute(name) || ''))];
 }
 
-async function loadOptions(language = 'en', filled = false) {
+async function loadOptions(language = 'en', filled = false, options = {}) {
   const { document, window } = parseHTML(html);
   for (const form of document.querySelectorAll('form')) Object.defineProperty(form, 'elements', { get: () => Object.fromEntries(Array.from(form.querySelectorAll('[name]')).map(node => [node.name, node])) });
   for (const dialog of document.querySelectorAll('dialog')) { dialog.showModal = () => { dialog.open = true; }; dialog.close = () => { dialog.open = false; }; }
@@ -33,20 +35,36 @@ async function loadOptions(language = 'en', filled = false) {
     stored.posts['123'] = { id: '123', text: '<img src=x onerror=alert(1)> safe text', views: 12345, approximate: true, observedAt: new Date().toISOString() };
     stored.tracking.lastPageAt = new Date().toISOString(); stored.tracking.lastNetworkAt = new Date().toISOString();
   }
-  const actions = []; let changed, rejectNext;
+  const actions = []; let changed, rejectNext, backupState = { enabled: true, status: 'idle', lastSuccessAt: null, filename: null, error: null };
+  let backupResponse;
   const chrome = {
     runtime: { id: 'options-test', async sendMessage(action) {
       actions.push(action);
       if (rejectNext) { const error = rejectNext; rejectNext = null; return { ok: false, error }; }
+      if (action.type.startsWith('backup-')) {
+        if (action.type === 'backup-setting') backupState = { ...backupState, enabled: action.enabled, status: action.enabled ? 'idle' : 'disabled' };
+        if (action.type === 'backup-now') backupState = backupResponse || { ...backupState, status: 'saving', downloadId: 1, requestedSignature: 'snapshot-1', inFlightSignature: 'snapshot-1' };
+        return { ok: true, backup: structuredClone(backupState) };
+      }
       if (action.type !== 'get') stored = core.reduce(stored, action);
       return { ok: true, state: structuredClone(stored) };
     } },
     storage: { onChanged: { addListener(listener) { changed = listener; } } },
     tabs: { create() {}, query: async () => [], sendMessage: async () => ({}) }
   };
-  const context = vm.createContext({ ...core, ...i18n, document, window, chrome, location: { search: '' }, URLSearchParams, URL, Blob, console, setTimeout: () => 0, clearTimeout() {}, setInterval() {}, structuredClone });
+  if (options.noStorageEvents) delete chrome.storage;
+  if (options.demo) delete chrome.runtime.id;
+  let scrolled = false;
+  document.querySelector('#local-backup').scrollIntoView = () => { scrolled = true; };
+  const context = vm.createContext({ ...core, ...i18n, ...assessment, backupComparableState, document, window, chrome, location: { search: options.demo ? '?demo=1' : '', hash: options.hash || '' }, URLSearchParams, URL, Blob, console, setTimeout: () => 0, clearTimeout() {}, setInterval() {}, structuredClone });
   await vm.runInContext(`(async () => { ${app}\n })()`, context);
-  return { document, window, actions, get stored() { return stored; }, fail(message) { rejectNext = message; }, update(language) { stored.settings.language = language; changed({ [core.STORAGE_KEY]: { newValue: structuredClone(stored) } }); } };
+  return { document, window, actions, get stored() { return stored; }, get scrolled() { return scrolled; }, fail(message) { rejectNext = message; },
+    nextBackup(value) { backupResponse = value; },
+    updateBackup(patch) { backupState = { ...backupState, ...patch }; changed?.({ xFocusLocalBackupV1: { newValue: structuredClone(backupState) } }); },
+    changeState(action) { stored = core.reduce(stored, action); changed?.({ [core.STORAGE_KEY]: { newValue: structuredClone(stored) } }); },
+    heartbeat() { stored.tracking.lastPageAt = new Date().toISOString(); stored.lastCapture = new Date().toISOString(); for (const post of Object.values(stored.posts)) post.observedAt = new Date().toISOString(); changed?.({ [core.STORAGE_KEY]: { newValue: structuredClone(stored) } }); },
+    update(language) { stored.settings.language = language; changed?.({ [core.STORAGE_KEY]: { newValue: structuredClone(stored) } }); }
+  };
 }
 
 test('static options copy and accessibility attributes switch languages without replacing user inputs', () => {
@@ -125,4 +143,138 @@ test('native form validation can use the chosen interface language instead of th
   assert.equal(i18n.optionsValidationError('en', { validity: { rangeOverflow: true }, max: '1000' }), 'The value must be no more than 1000.');
   assert.equal(i18n.optionsValidationError('en', { validity: { patternMismatch: true }, name: 'username' }), 'Enter a valid X handle, not a URL.');
   assert.equal(i18n.optionsValidationError('zh-CN', { validity: { stepMismatch: true } }), '请输入整数。');
+});
+
+async function selectBackup(env, data, size = 1000) {
+  const input = env.document.querySelector('#import-file');
+  Object.defineProperty(input, 'files', { configurable: true, value: [{ size, text: async () => JSON.stringify(data) }] });
+  input.dispatchEvent(new env.window.Event('change')); await flush();
+}
+function restoreFixture() {
+  const value = core.newState(); value.settings.username = 'another_account';
+  const day = core.ensureDay(value, '2026-01-01'); day.posts = 3; day.replies = 7;
+  return value;
+}
+
+test('local backup card distinguishes queued, saving and completed files without changing action records', async () => {
+  const env = await loadOptions('en', true), { document } = env, before = JSON.stringify(env.stored);
+  assert.equal(document.querySelector('#local-backup').hidden, false);
+  assert.match(document.querySelector('#backup-status').textContent, /Automatic backups on/);
+  assert.match(document.querySelector('#backup-time').textContent, /No completed file/);
+  document.querySelector('#backup-now').click(); await flush();
+  assert.equal(env.actions.at(-1).type, 'backup-now');
+  assert.equal(JSON.stringify(env.stored), before);
+  assert.match(document.querySelector('#backup-status').textContent, /Completion not yet confirmed/);
+  assert.equal(document.querySelector('#backup-show').disabled, true);
+  env.updateBackup({ status: 'pending', inFlightSignature: null }); await flush();
+  assert.match(document.querySelector('#backup-status').textContent, /waiting to be saved/);
+  env.updateBackup({ status: 'saved', lastSuccessAt: '2026-09-26T02:34:00Z', filename: 'X-Focus/soap628/session-1.json' }); await flush();
+  assert.equal(document.querySelector('#backup-status').textContent, 'File saved to computer');
+  assert.match(document.querySelector('#backup-time').textContent, /10:34/);
+  assert.equal(document.querySelector('#backup-path').textContent, 'X-Focus/soap628/session-1.json');
+  assert.equal(document.querySelector('#backup-show').disabled, false);
+});
+
+test('backup settings and save failures remain separate from the normal tracking reducer', async () => {
+  const env = await loadOptions('en', true), { document, window } = env;
+  const checkbox = document.querySelector('#backup-enabled'); checkbox.checked = false;
+  checkbox.dispatchEvent(new window.Event('change')); await flush();
+  assert.deepEqual(JSON.parse(JSON.stringify(env.actions.at(-1))), { type: 'backup-setting', enabled: false });
+  assert.match(document.querySelector('#backup-status').textContent, /Automatic backups off/);
+  env.fail('无法保存'); document.querySelector('#backup-now').click(); await flush();
+  assert.match(document.querySelector('#backup-error').textContent, /Could not save/);
+  document.querySelector('[data-adjust="posts:1"]').click(); await flush();
+  assert.equal(env.stored.days[core.dayKey()].posts, 2);
+});
+
+test('backup hash opens the today page and missing storage event APIs do not break the dashboard', async () => {
+  const env = await loadOptions('en', false, { hash: '#backup', noStorageEvents: true });
+  assert.equal(env.scrolled, true); assert.equal(env.document.querySelector('#today-page').hidden, false);
+  assert.equal(env.document.querySelector('#growth-page').hidden, true);
+  assert.equal(env.document.querySelector('#backup-now').disabled, false);
+});
+
+test('manual saves report completion while automatic backups remain disabled', async () => {
+  const env = await loadOptions('en', true), { document, window } = env;
+  const checkbox = document.querySelector('#backup-enabled'); checkbox.checked = false;
+  checkbox.dispatchEvent(new window.Event('change')); await flush();
+  document.querySelector('#backup-now').click(); await flush();
+  assert.match(document.querySelector('#backup-status').textContent, /Completion not yet confirmed/);
+  assert.equal(checkbox.checked, false);
+  const completed = { enabled: false, status: 'disabled', dirty: false, inFlightSignature: null, currentSignature: 'snapshot-1', lastCompletedSignature: 'snapshot-1', requestedSignature: 'snapshot-1', lastSuccessAt: '2026-09-26T02:34:00Z' };
+  env.updateBackup(completed); await flush();
+  assert.equal(document.querySelector('#backup-status').textContent, 'File saved to computer · Automatic backups off');
+  assert.equal(checkbox.checked, false);
+  assert.equal(document.querySelector('#backup-now').disabled, false);
+  env.nextBackup(completed); document.querySelector('#backup-now').click(); await flush();
+  assert.equal(document.querySelector('#toast').textContent, 'File saved to computer');
+  assert.equal(checkbox.checked, false);
+  env.updateBackup({ dirty: true }); await flush();
+  assert.equal(document.querySelector('#backup-status').textContent, 'Automatic backups off · Manual saves available');
+  env.nextBackup({ ...completed, currentSignature: 'new-snapshot', requestedSignature: 'new-snapshot', dirty: true });
+  document.querySelector('#backup-now').click(); await flush();
+  assert.match(document.querySelector('#toast').textContent, /Save requested/);
+  assert.equal(checkbox.checked, false);
+  env.updateBackup(completed); await flush(); env.update('zh-CN');
+  assert.equal(document.querySelector('#backup-status').textContent, '文件已写入电脑 · 自动存档已关闭');
+});
+
+test('demo does not pretend that files were written to the computer', async () => {
+  const env = await loadOptions('en', false, { demo: true }), { document } = env;
+  assert.match(document.querySelector('#backup-status').textContent, /预览中无法自动保存电脑文件/);
+  assert.equal(document.querySelector('#backup-now').disabled, true);
+  assert.equal(document.querySelector('#backup-enabled').disabled, true);
+  assert.equal(env.actions.length, 0);
+});
+
+test('fresh installs preview action EXP and account differences and restore without backing up empty data', async () => {
+  const env = await loadOptions(), { document } = env;
+  await selectBackup(env, restoreFixture(), 6 * 1024 * 1024);
+  const summary = document.querySelector('#import-summary').textContent;
+  assert.match(summary, /@another_account/); assert.match(summary, /Total posts3/); assert.match(summary, /Total replies7/); assert.match(summary, /22 EXP/); assert.match(summary, /Collectibles found0/);
+  assert.match(document.querySelector('#import-guidance').textContent, /different account/);
+  assert.equal(document.querySelector('#backup-before-import').hidden, true);
+  assert.equal(document.querySelector('#confirm-import').disabled, false);
+  document.querySelector('#confirm-import').click(); await flush();
+  assert.equal(env.stored.settings.username, 'another_account');
+  assert.equal(env.stored.days['2026-01-01'].posts, 3);
+});
+
+test('existing records require the corresponding file snapshot to complete before restoring', async () => {
+  const env = await loadOptions('en', true), { document } = env;
+  await selectBackup(env, restoreFixture());
+  assert.equal(document.querySelector('#confirm-import').disabled, true);
+  document.querySelector('#backup-before-import').click(); await flush();
+  assert.equal(document.querySelector('#confirm-import').disabled, true);
+  env.updateBackup({ lastSuccessAt: '2026-09-26T02:30:00Z', lastCompletedDownloadId: 77, lastCompletedSignature: 'old-snapshot' }); await flush();
+  assert.equal(document.querySelector('#confirm-import').disabled, true, 'another completed download is insufficient');
+  env.updateBackup({ status: 'saved', inFlightSignature: null, lastCompletedDownloadId: 1, lastCompletedSignature: 'snapshot-1' }); await flush();
+  assert.equal(document.querySelector('#confirm-import').disabled, false);
+  env.heartbeat();
+  assert.equal(document.querySelector('#confirm-import').disabled, false, 'heartbeat timestamps do not invalidate the safety backup');
+  env.changeState({ type: 'adjust', kind: 'replies', amount: 1 });
+  assert.equal(document.querySelector('#confirm-import').disabled, true, 'new records need a new safety backup');
+});
+
+test('an older in-flight snapshot cannot authorize replacement and failed protection can be retried', async () => {
+  const env = await loadOptions('en', true), { document } = env;
+  await selectBackup(env, restoreFixture());
+  env.nextBackup({ enabled: true, status: 'saving', downloadId: 7, requestedSignature: 'new-state', inFlightSignature: 'old-state', lastCompletedSignature: null });
+  document.querySelector('#backup-before-import').click(); await flush();
+  assert.match(document.querySelector('#import-error').textContent, /still waiting/);
+  env.updateBackup({ status: 'saved', inFlightSignature: null, lastCompletedSignature: 'old-state' }); await flush();
+  assert.equal(document.querySelector('#confirm-import').disabled, true);
+  assert.equal(document.querySelector('#backup-before-import').disabled, false);
+  env.nextBackup({ enabled: true, status: 'saving', downloadId: 8, requestedSignature: 'new-state', inFlightSignature: 'new-state' });
+  document.querySelector('#backup-before-import').click(); await flush();
+  env.updateBackup({ status: 'error', inFlightSignature: null, error: '无法保存' }); await flush();
+  assert.equal(document.querySelector('#confirm-import').disabled, true);
+  assert.equal(document.querySelector('#backup-before-import').disabled, false);
+  assert.match(document.querySelector('#import-error').textContent, /Retry saving/);
+});
+
+test('restore rejects files above the supported 16 MiB boundary with translated feedback', async () => {
+  const env = await loadOptions(); await selectBackup(env, restoreFixture(), 16 * 1024 * 1024 + 1);
+  assert.match(env.document.querySelector('#toast').textContent, /no larger than 16 MB/);
+  assert.notEqual(env.document.querySelector('#import-dialog').open, true);
 });

@@ -1,9 +1,13 @@
 import { STORAGE_KEY, newState, dayKey, ensureDay, recentDates, progress, streak, followerDelta, reduce, csv, validateBackup, upgradeState } from './core.js';
+import { actionCounts } from './assessment.js';
+import { backupComparableState } from './local-backup.js';
 import { createOptionsLocalizer, optionsText, optionsLocale, optionsError, optionsCsv, optionsValidationError } from './options-i18n.js';
 const $ = selector => document.querySelector(selector);
 const isExtension = !!globalThis.chrome?.runtime?.id;
 const demo = !isExtension && new URLSearchParams(location.search).has('demo');
 let state = newState(), range = 7, toastTimer, pendingImport, recordBaseline = {}, localQueue = Promise.resolve();
+const BACKUP_META_KEY = 'xFocusLocalBackupV1';
+let backupInfo = { enabled: false, status: isExtension ? 'loading' : 'unavailable', lastSuccessAt: null, filename: null, error: null }, backupBusy = false, backedUpImportState = null, importBackupRequest = null, importBackupConfirmed = false, backupRefresh = null, backupRefreshAgain = false;
 const language = () => state.settings.language === 'en' ? 'en' : 'zh-CN';
 const t = (key, values) => optionsText(language(), key, values);
 const locale = () => optionsLocale(language());
@@ -19,7 +23,7 @@ const shortNumber = value => language() === 'en' ? new Intl.NumberFormat('en-US'
 const escape = text => String(text).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 function toast(message, error = false) { clearTimeout(toastTimer); $('#toast').textContent = message; $('#toast').dataset.error = error; $('#toast').hidden = false; toastTimer = setTimeout(() => { $('#toast').hidden = true; }, error ? 6500 : 3300); }
 async function readState() {
-  if (isExtension) { const response = await chrome.runtime.sendMessage({ type: 'get' }); if (!response?.ok) throw new Error(response?.error || '扩展服务未响应'); return response.state; }
+  if (isExtension) { const response = await chrome.runtime.sendMessage({ type: 'get' }); if (!response?.ok) throw new Error(response?.error || '扩展服务未响应'); if (response.backup) backupInfo = response.backup; return response.state; }
   if (demo) return demoState();
   const saved = localStorage.getItem(STORAGE_KEY); return upgradeState(saved ? validateBackup(JSON.parse(saved)) : newState());
 }
@@ -29,6 +33,7 @@ function save(action) {
       const response = await chrome.runtime.sendMessage(action);
       if (!response?.ok) throw new Error(response?.error || '无法保存');
       state = response.state;
+      if (response.backup) backupInfo = response.backup;
     } else {
       const current = demo ? state : await readState();
       const next = reduce(current, action);
@@ -55,6 +60,7 @@ function render() {
   for (const [selector, error] of visibleErrors) $(selector).textContent = optionsError(language(), error);
   if (!isExtension) { $('#preview-banner').hidden = false; $('#preview-banner').textContent = t(demo ? '示例预览 · 以下为虚构数据 · 不写入扩展记录' : '本地预览 · 数据仅保存在此预览，扩展数据独立存储'); }
   renderImportSummary();
+  renderBackup();
   const date = today(); const d = state.days[date] || { posts: 0, replies: 0, goals: { posts: state.settings.posts, replies: state.settings.replies } };
   const p = progress(d);
   $('#account-label').textContent = state.settings.username ? t('@{name} 的起号日常', { name: state.settings.username }) : t('你的 X 起号日常');
@@ -147,7 +153,84 @@ function fillRecord(date) {
 function openRecord(date = today()) { fillRecord(date); $('#record-dialog').showModal(); }
 function download(name, contents, type) { const url = URL.createObjectURL(new Blob([contents], { type })); const a = document.createElement('a'); a.href = url; a.download = name; a.click(); setTimeout(() => URL.revokeObjectURL(url), 10000); }
 function backup() { download(`x-focus-${state.settings.username || 'local'}-${today()}.json`, JSON.stringify(state, null, 2), 'application/json'); }
-function renderImportSummary() { if (pendingImport) $('#import-summary').textContent = t('将恢复 @{name} 的 {days} 天记录和 {posts} 条帖子。', { name: pendingImport.settings.username || t('未绑定账号'), days: Object.keys(pendingImport.days).length, posts: Object.keys(pendingImport.posts).length }); }
+function hasSavedRecords(value) {
+  return Object.keys(value.posts || {}).length > 0 || value.analyticsSummary != null || value.account?.blueVerified != null || (value.rewards?.earned?.length || 0) > 0 || Object.values(value.days || {}).some(day => day.posts > 0 || day.replies > 0 || day.note || day.followers != null || day.verifiedFollowers != null || day.impressions != null || day.trackedViews != null || day.loggedPostIds?.length);
+}
+function renderImportSummary() {
+  if (!pendingImport) return;
+  if (importBackupRequest && backupInfo.lastCompletedSignature === importBackupRequest.signature) {
+    backedUpImportState = importBackupRequest.state;
+    importBackupConfirmed = true;
+    importBackupRequest = null;
+  }
+  const counts = actionCounts(pendingImport), items = new Set((pendingImport.rewards?.earned || []).map(event => event.itemId).filter(Boolean)).size;
+  const name = pendingImport.settings.username ? `@${pendingImport.settings.username}` : t('未绑定账号');
+  const rows = [['每日记录', Object.keys(pendingImport.days).length], ['累计发帖', counts.posts], ['累计回复', counts.replies], ['累计经验', `${number(counts.postXp + counts.replyXp)} EXP`], ['已发现收藏', items]];
+  $('#import-summary').innerHTML = `<strong>${escape(name)}</strong><dl>${rows.map(([label, value]) => `<div><dt>${escape(t(label))}</dt><dd>${escape(typeof value === 'number' ? number(value) : value)}</dd></div>`).join('')}</dl>`;
+  const existing = hasSavedRecords(state);
+  const protectedState = backedUpImportState === backupComparableState(state);
+  const differentAccount = state.settings.username && pendingImport.settings.username && state.settings.username.toLowerCase() !== pendingImport.settings.username.toLowerCase();
+  const guidance = !existing ? '当前没有记录，可直接恢复。请核对上面的账号和记录，再确认恢复。' : importBackupRequest ? '正在为当前记录保存保护备份，完成后即可恢复。' : protectedState ? importBackupConfirmed ? '当前记录的保护备份已写入电脑，可以确认恢复。' : '已开始下载。请在浏览器中确认文件下载完成后，再恢复存档。' : '恢复会替换当前记录。请先下载当前备份，方便需要时恢复。';
+  $('#import-guidance').textContent = [differentAccount ? t('注意：存档属于另一个账号。恢复会整体替换当前账号和记录，不会合并。') : '', t(guidance)].filter(Boolean).join(' ');
+  $('#backup-before-import').hidden = !existing;
+  $('#backup-before-import').disabled = backupBusy || !!backupInfo.inFlightSignature || backupInfo.status === 'saving' || !!importBackupRequest;
+  $('#confirm-import').disabled = existing && !protectedState;
+}
+function renderBackup() {
+  const status = !isExtension ? 'unavailable' : backupInfo.status;
+  const labels = { loading: '正在读取存档状态…', unavailable: isExtension ? '当前浏览器无法自动存档，可手动下载备份。' : '预览中无法自动保存电脑文件，请在已安装的扩展中使用。', disabled: '自动存档已关闭 · 可以手动保存', idle: '自动存档已开启 · 等待记录变化', pending: '有更新等待写入电脑 · 请稍候', saving: '正在保存文件 · 尚未确认写入完成', saved: '文件已写入电脑', error: '存档未完成 · 发帖和回复仍正常记账' };
+  const completedWhileDisabled = status === 'disabled' && backupInfo.lastSuccessAt && !backupInfo.dirty && backupInfo.currentSignature && backupInfo.lastCompletedSignature === backupInfo.currentSignature;
+  $('#backup-status').textContent = t(completedWhileDisabled ? '文件已写入电脑 · 自动存档已关闭' : labels[status] || labels.error);
+  $('#local-backup').dataset.status = status;
+  $('#backup-time').textContent = backupInfo.lastSuccessAt ? formatTime(backupInfo.lastSuccessAt) : t('尚未保存到电脑');
+  $('#backup-path').textContent = backupInfo.filename || t('下载目录 / X-Focus/{name}/', { name: state.settings.username || 'local' });
+  $('#backup-enabled').checked = !!backupInfo.enabled;
+  $('#backup-enabled').disabled = !isExtension || backupBusy || status === 'loading' || status === 'unavailable';
+  $('#backup-now').disabled = !isExtension || backupBusy || ['loading', 'saving', 'unavailable'].includes(status);
+  $('#backup-show').disabled = !isExtension || backupBusy || !backupInfo.lastSuccessAt;
+  $('#backup-error').textContent = backupInfo.error ? optionsError(language(), backupInfo.error) : '';
+  if (importBackupRequest && backupInfo.status === 'error' && !backupInfo.inFlightSignature) {
+    importBackupRequest = null;
+    showError('#import-error', new Error('存档未完成，请重试保存后再恢复。'));
+  }
+  renderImportSummary();
+}
+async function backupCommand(message) {
+  if (!isExtension) return;
+  const response = await chrome.runtime.sendMessage(message);
+  if (response?.backup) backupInfo = response.backup;
+  if (!response?.ok) throw new Error(response?.error || '无法读取本地存档状态');
+  if (!response.backup) throw new Error('无法读取本地存档状态');
+  renderBackup();
+  return response.backup;
+}
+function refreshBackupStatus() {
+  if (!isExtension) return Promise.resolve();
+  if (backupRefresh) { backupRefreshAgain = true; return backupRefresh; }
+  backupRefresh = backupCommand({ type: 'backup-status' }).catch(error => {
+    backupInfo = { ...backupInfo, status: 'error', error: error.message }; renderBackup();
+  }).finally(() => {
+    backupRefresh = null;
+    if (backupRefreshAgain) { backupRefreshAgain = false; void refreshBackupStatus(); }
+  });
+  return backupRefresh;
+}
+async function runBackupCommand(message) {
+  if (!isExtension || backupBusy) return;
+  backupBusy = true; renderBackup();
+  try {
+    const result = await backupCommand(message);
+    const completed = result.status === 'saved' || result.status === 'disabled' && result.lastSuccessAt && result.requestedSignature && result.lastCompletedSignature === result.requestedSignature;
+    if (message.type === 'backup-now') toast(t(completed ? '文件已写入电脑' : result.status === 'error' ? '存档未完成 · 发帖和回复仍正常记账' : '已提交保存，请等待“文件已写入电脑”状态。'), result.status === 'error');
+  } catch (error) { backupInfo = { ...backupInfo, status: message.type === 'backup-show' ? backupInfo.status : 'error', error: error.message }; failure(error); }
+  finally { backupBusy = false; renderBackup(); }
+}
+function openBackupSection() {
+  if (location.hash !== '#backup') return;
+  $('[data-tab="today"]').click();
+  $('#local-backup').scrollIntoView?.({ block: 'start' });
+  $('#local-backup').focus?.({ preventScroll: true });
+}
 $('#language-select').addEventListener('change', async event => {
   const select = event.currentTarget, next = select.value; select.disabled = true;
   try { await save({ type: 'language', language: next }); toast(t('语言已保存')); }
@@ -202,18 +285,48 @@ $('#scan-button').addEventListener('click', async () => {
 $('#export-csv').addEventListener('click', () => download(`x-focus-${today()}.csv`, optionsCsv(csv(state), language()), 'text/csv;charset=utf-8'));
 $('#export-json').addEventListener('click', backup);
 $('#import-button').addEventListener('click', () => $('#import-file').click());
+$('#backup-restore').addEventListener('click', () => $('#import-file').click());
+$('#backup-now').addEventListener('click', () => runBackupCommand({ type: 'backup-now' }));
+$('#backup-show').addEventListener('click', () => runBackupCommand({ type: 'backup-show' }));
+$('#backup-enabled').addEventListener('change', event => runBackupCommand({ type: 'backup-setting', enabled: event.currentTarget.checked }));
 $('#import-file').addEventListener('change', async event => {
-  const file = event.target.files[0]; if (!file) return;
+  const input = event.currentTarget, file = input.files[0]; if (!file) return;
   try {
-    if (file.size > 5 * 1024 * 1024) throw new Error('备份文件应小于 5 MB');
+    if (file.size > 16 * 1024 * 1024) throw new Error('备份文件不能超过 16 MB');
     pendingImport = validateBackup(JSON.parse(await file.text()));
+    backedUpImportState = null; importBackupRequest = null; importBackupConfirmed = false;
     renderImportSummary();
-    $('#confirm-import').disabled = true; clearError('#import-error'); $('#import-dialog').showModal();
-  } catch (error) { toast(t('无法恢复：{error}', { error: optionsError(language(), error) }), true); } finally { event.target.value = ''; }
+    clearError('#import-error'); $('#import-dialog').showModal();
+  } catch (error) { toast(t('无法恢复：{error}', { error: optionsError(language(), error) }), true); } finally { input.value = ''; }
 });
-$('#backup-before-import').addEventListener('click', () => { backup(); $('#confirm-import').disabled = false; });
-$('#confirm-import').addEventListener('click', async () => { try { await save({ type: 'import', data: pendingImport }); $('#import-dialog').close(); toast(t('备份已恢复')); } catch (error) { showError('#import-error', error); } });
-if (isExtension) chrome.storage.onChanged.addListener(changes => { if (changes[STORAGE_KEY]?.newValue) { state = changes[STORAGE_KEY].newValue; render(); } });
+$('#backup-before-import').addEventListener('click', async () => {
+  if (backupBusy || backupInfo.inFlightSignature || backupInfo.status === 'saving') return;
+  if (!isExtension || backupInfo.status === 'unavailable') {
+    backup(); backedUpImportState = backupComparableState(state); importBackupConfirmed = false; renderImportSummary();
+    toast(t('已开始下载。请在浏览器中确认文件下载完成后，再恢复存档。')); return;
+  }
+  const savedState = backupComparableState(state);
+  backupBusy = true; renderBackup(); clearError('#import-error');
+  try {
+    const result = await backupCommand({ type: 'backup-now' });
+    const signature = result.requestedSignature;
+    if (!signature || (result.inFlightSignature !== signature && result.lastCompletedSignature !== signature)) throw new Error('存档仍在等待，请在当前保存结束后重试。');
+    importBackupRequest = { signature, state: savedState };
+    renderImportSummary();
+  } catch (error) { showError('#import-error', error); }
+  finally { backupBusy = false; renderBackup(); }
+});
+$('#confirm-import').addEventListener('click', async () => {
+  if (!pendingImport || (hasSavedRecords(state) && backedUpImportState !== backupComparableState(state))) return;
+  $('#confirm-import').disabled = true;
+  try { await save({ type: 'import', data: pendingImport }); pendingImport = null; $('#import-dialog').close(); toast(t('备份已恢复')); }
+  catch (error) { showError('#import-error', error); renderImportSummary(); }
+});
+if (isExtension) chrome.storage?.onChanged?.addListener?.(changes => {
+  if (changes[STORAGE_KEY]?.newValue) { state = changes[STORAGE_KEY].newValue; render(); }
+  if (changes[BACKUP_META_KEY]) refreshBackupStatus();
+});
 else window.addEventListener('storage', event => { if (!demo && event.key === STORAGE_KEY) readState().then(next => { state = next; render(); }).catch(failure); });
+window.addEventListener('hashchange', openBackupSection);
 setInterval(render, 30000);
-try { state = await readState(); render(); } catch (error) { localize(language()); toast(t('读取数据失败：{error}。请先备份现有数据再处理。', { error: optionsError(language(), error) }), true); document.querySelectorAll('button, select').forEach(button => { button.disabled = true; }); }
+try { state = await readState(); render(); await refreshBackupStatus(); openBackupSection(); } catch (error) { localize(language()); toast(t('读取数据失败：{error}。请先备份现有数据再处理。', { error: optionsError(language(), error) }), true); document.querySelectorAll('button, select').forEach(button => { button.disabled = true; }); }

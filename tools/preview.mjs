@@ -4,7 +4,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 const root = fileURLToPath(new URL('../', import.meta.url));
 const mime = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.json': 'application/json', '.png': 'image/png' };
-const allowed = new Set(['hud-preview.html', 'hud-preview.js', 'hud-theme.js', 'hud.js', 'hud-state.js', 'assessment.js', 'rewards.js', 'i18n.js', 'relic-icons.js', 'options-i18n.js', 'sidepanel.html', 'app.js', 'styles.css', 'core.js', 'assets/ranger-portrait-v1.png', 'assets/ornate-panel-v1.png', 'assets/treasure-chest-v1.png']);
+const allowed = new Set(['hud-preview.html', 'hud-preview.js', 'hud-theme.js', 'hud.js', 'hud-state.js', 'assessment.js', 'rewards.js', 'i18n.js', 'relic-icons.js', 'options-i18n.js', 'sidepanel.html', 'app.js', 'styles.css', 'core.js', 'local-backup.js', 'assets/ranger-portrait-v1.png', 'assets/ornate-panel-v1.png', 'assets/treasure-chest-v1.png']);
 export function createPreviewServer() { return http.createServer(async (req, res) => {
   try {
     const url = new URL(req.url, 'http://127.0.0.1');
