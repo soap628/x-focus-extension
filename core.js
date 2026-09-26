@@ -257,20 +257,22 @@ export function validateBackup(input) {
 export function validateRewards(input) {
   if (input === null) return null;
   const timestamp = value => typeof value === 'string' && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?Z$/.test(value) && validDay(value.slice(0, 10)) && Number.isFinite(Date.parse(value)) && new Date(value).toISOString().slice(0, 19) === value.slice(0, 19);
-  if (!input || Array.isArray(input) || input.version !== 1 || !timestamp(input.initializedAt) || !integer(input.levelHighWater, 50) || input.levelHighWater < 1 || !Array.isArray(input.earned) || input.earned.length > MAX_REWARDS) throw new Error('备份收藏记录无效');
+  const actionLevels = input?.levelSystem === 'action-v1';
+  const levelLimit = actionLevels ? Number.MAX_SAFE_INTEGER : 50;
+  if (!input || Array.isArray(input) || input.version !== 1 || (input.levelSystem !== undefined && !actionLevels) || !timestamp(input.initializedAt) || !Number.isSafeInteger(input.levelHighWater) || !integer(input.levelHighWater, levelLimit) || input.levelHighWater < 1 || !Array.isArray(input.earned) || input.earned.length > MAX_REWARDS) throw new Error('备份收藏记录无效');
   const initializedAt = new Date(input.initializedAt).toISOString();
   const initializedDate = dayKey(new Date(initializedAt));
   const ids = new Set();
   const earned = input.earned.map(event => {
     if (!event || Array.isArray(event) || typeof event.id !== 'string' || ids.has(event.id) || !['daily', 'level'].includes(event.reason) || !validDay(event.date) || event.date < initializedDate) throw new Error('备份宝箱事件无效');
     if (event.reason === 'daily' && (event.id !== `daily:${event.date}` || event.level !== undefined)) throw new Error('备份每日宝箱无效');
-    if (event.reason === 'level' && (!integer(event.level, 50) || event.level < 5 || event.level % 5 !== 0 || event.level > input.levelHighWater || event.id !== `level:${event.level}`)) throw new Error('备份等级宝箱无效');
+    if (event.reason === 'level' && (!Number.isSafeInteger(event.level) || !integer(event.level, levelLimit) || event.level < 5 || event.level % 5 !== 0 || event.level > input.levelHighWater || event.id !== `level:${event.level}`)) throw new Error('备份等级宝箱无效');
     const pending = event.openedAt === null && event.itemId === null;
     if (!pending && (!timestamp(event.openedAt) || !REWARD_ITEM_IDS.includes(event.itemId) || Date.parse(event.openedAt) < Date.parse(initializedAt) || dayKey(new Date(event.openedAt)) < event.date)) throw new Error('备份开箱结果无效');
     ids.add(event.id);
     return { id: event.id, reason: event.reason, date: event.date, ...(event.reason === 'level' ? { level: event.level } : {}), openedAt: pending ? null : new Date(event.openedAt).toISOString(), itemId: pending ? null : event.itemId };
   });
-  return { version: 1, initializedAt, levelHighWater: input.levelHighWater, earned };
+  return { version: 1, ...(actionLevels ? { levelSystem: 'action-v1' } : {}), initializedAt, levelHighWater: input.levelHighWater, earned };
 }
 export function csv(state) {
   const escape = value => `"${String(value ?? '').replace(/^(?:\s*[=+@\-]|[\t\r])/, "'$&").replaceAll('"', '""')}"`;

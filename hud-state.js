@@ -1,5 +1,5 @@
 import { dayKey, followerDelta, progress } from './core.js';
-import { actionExperience, assessAccount, latestMetric } from './assessment.js';
+import { actionExperience, assessAccount, latestMetric, accountAnalytics } from './assessment.js';
 import { rewardsSummary } from './rewards.js';
 
 // Only the values displayed by the page HUD cross into the content script.
@@ -18,7 +18,7 @@ export function hudSummary(state, now = new Date()) {
     posts: today.posts, replies: today.replies,
     goals: { posts: today.goals.posts, replies: today.goals.replies },
     auto: { posts: today.auto?.posts || 0, replies: today.auto?.replies || 0 },
-    level: assessment.level, xp: xp % 100, totalXp: xp, assessment,
+    level: assessment.level, xp: xp % 100, totalXp: xp, assessment, analytics: accountAnalytics(state, now),
     complete: progress(today).complete,
     followers: followers ? { value: followers.value, approximate: followers.approximate, date: followerDate } : null,
     verifiedFollowers: latestMetric(state, 'verifiedFollowers', date),
@@ -35,7 +35,7 @@ export function hudAction(message, state) {
     return { type: 'language', language: message.language };
   }
   if (message.command === 'open-chest') {
-    if (message.id !== undefined && (typeof message.id !== 'string' || !/^(?:daily:\d{4}-\d{2}-\d{2}|level:\d{1,2})$/.test(message.id))) throw new Error('无效的宝箱编号');
+    if (message.id !== undefined && (typeof message.id !== 'string' || !/^(?:daily:\d{4}-\d{2}-\d{2}|level:\d{1,16})$/.test(message.id))) throw new Error('无效的宝箱编号');
     return { type: 'open-chest', ...(message.id !== undefined ? { id: message.id } : {}) };
   }
   if (message.command === 'goals') return { type: 'settings', username: state.settings.username, posts: message.posts, replies: message.replies };

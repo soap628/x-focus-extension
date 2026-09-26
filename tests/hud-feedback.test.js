@@ -24,7 +24,7 @@ test('experience feedback occurs once for an action, never on initial load or du
   const e = setup({ posts: 50 });
   assert.equal(e.root.querySelector('.reward-float').hidden, true);
   e.act({ type: 'adjust', kind: 'posts', amount: 1 });
-  assert.equal(e.root.querySelector('.reward-float').textContent, '+20 EXP');
+  assert.equal(e.root.querySelector('.reward-float').textContent, '+5 EXP');
   assert.equal(e.timeouts.length, 1);
   e.render(); e.render();
   assert.equal(e.timeouts.length, 1);
@@ -32,13 +32,37 @@ test('experience feedback occurs once for an action, never on initial load or du
   assert.equal(e.root.querySelector('.reward-float').hidden, true);
   e.hud.destroy();
 });
-test('level-up feedback follows a composite score threshold crossed by an action', () => {
-  const e = setup({ posts: 2, replies: 2 }); // 50 XP gives 79 composite points: Lv.4.
+test('level-up feedback follows each full 100 EXP earned from recorded actions', () => {
+  const e = setup({ posts: 79, replies: 4 }); // 399 EXP: Lv.4, one reply away from Lv.5.
   assert.match(e.root.querySelector('.level').textContent, /04/);
   e.act({ type: 'adjust', kind: 'replies', amount: 1 });
   assert.equal(e.root.querySelector('.reward-float').textContent, '升至 LV. 5');
   assert.equal(e.root.querySelector('.rank').textContent, '暮光游侠');
   assert.equal(e.root.querySelector('.card').classList.contains('level-up'), true);
+  e.hud.destroy();
+});
+test('Analytics period changes update the metric display without moving EXP or creating rewards', () => {
+  const e = setup({ posts: 5, replies: 10 });
+  assert.equal(e.root.querySelector('.xp-num').textContent, '35 / 100 EXP');
+  for (const [label, days, impressions, engagements] of [['2W', 14, 98000, 3200], ['7D', 7, 700000, 100000], ['1Y', 365, 9000000, 800000]]) {
+    e.act({ type: 'capture', username: 'soap628', followers: { value: 100000 }, verifiedFollowers: { value: 25000 }, analyticsSummary: { period: { label, days, start: null, end: null }, impressions: { value: impressions }, engagements: { value: engagements } } });
+    assert.equal(e.root.querySelector('.xp-num').textContent, '35 / 100 EXP');
+    assert.equal(e.root.querySelector('.level').textContent, 'LV. 01');
+    assert.equal(e.root.querySelector('.xp-row .fill').style.width, '35%');
+    assert.match(e.root.querySelector('.views .metric-label').textContent, new RegExp(label));
+    assert.equal(e.root.querySelector('.reward-float').hidden, true);
+  }
+  assert.equal(e.timeouts.length, 0); e.hud.destroy();
+});
+test('action levels and their experience display continue beyond the former level fifty cap', () => {
+  const e = setup({ posts: 1000 });
+  assert.equal(e.root.querySelector('.level').textContent, 'LV. 51');
+  assert.equal(e.root.querySelector('.xp-num').textContent, '0 / 100 EXP');
+  assert.equal(e.root.querySelector('.assessment-coverage').textContent, '距下一级 100 EXP');
+  assert.equal(e.root.querySelector('.xp-row .fill').style.width, '0%');
+  e.act({ type: 'adjust', kind: 'replies', amount: 1 });
+  assert.equal(e.root.querySelector('.reward-float').textContent, '+1 EXP');
+  assert.equal(e.root.querySelector('.xp-num').textContent, '1 / 100 EXP');
   e.hud.destroy();
 });
 test('lowering goals can complete quests without pretending to earn more experience', () => {

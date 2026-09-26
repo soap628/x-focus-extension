@@ -49,7 +49,13 @@ test('switching HUD language preserves draft goal inputs and localizes all rende
     for (const attribute of ['title', 'aria-label']) assert.doesNotMatch(element.getAttribute(attribute) || '', /[\u3400-\u9fff]/u, `Chinese ${attribute} in ${element.className}`);
   }
   q('.assessment-toggle').click(); assert.equal(q('.settings').hidden, true); assert.equal(q('.assessment-panel').hidden, false);
-  assert.match(q('.dimensions').textContent, /14-day average/);
+  assert.match(q('.dimensions').textContent, /Lifetime posts0 EXP0 × 5 EXP/);
+  assert.match(q('.dimensions').textContent, /Lifetime replies0 EXP0 × 1 EXP/);
+  assert.match(q('.score-rules').textContent, /Every 100 EXP|every 100 EXP/);
+  assert.match(q('.score-rules').textContent, /no level cap/);
+  assert.equal(q('.xp-num').textContent, '0 / 100 EXP');
+  assert.match(q('.views').title, /14-day average/);
+  assert.match(q('.views').title, /does not affect level/);
   assert.equal(e.document.querySelector('main').textContent, 'X remains untouched'); e.hud.destroy();
 });
 

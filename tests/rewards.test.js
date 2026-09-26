@@ -37,7 +37,7 @@ test('language is validated, persisted separately from goals, and migrates old b
   assert.throws(() => validateBackup(old));
 });
 
-test('migration initializes the existing balanced level without historic chests', () => {
+test('initialization baselines recorded action experience without historic chests', () => {
   let old = reduce(newState(), { type: 'settings', username: 'soap628', posts: 1, replies: 1 }, now);
   old = reduce(old, { type: 'capture', username: 'soap628', followers: { value: 100000 }, verifiedFollowers: { value: 25000 } }, now);
   old.days[date].posts = 999;
@@ -49,15 +49,65 @@ test('migration initializes the existing balanced level without historic chests'
   assert.deepEqual(dispatch(initialized, { type: 'heartbeat', username: 'soap628' }, later).rewards, initialized.rewards);
 });
 
-test('level thresholds award once and a decline followed by recovery cannot farm boxes', () => {
-  let state = dispatch(setup(), { type: 'capture', username: 'soap628', followers: { value: 100000 } });
+test('level thresholds award once and corrected counts cannot farm recovered levels', () => {
+  let state = dispatch(setup(), { type: 'daily', date, posts: 200, note: '' });
   assert.deepEqual(state.rewards.earned.map(event => event.id), ['level:5', 'level:10']);
   const highWater = state.rewards.levelHighWater;
-  state = dispatch(state, { type: 'capture', username: 'soap628', followers: { value: 0 } });
+  state = dispatch(state, { type: 'daily', date, posts: 0, note: '' });
   assert.equal(state.rewards.levelHighWater, highWater);
-  state = dispatch(state, { type: 'capture', username: 'soap628', followers: { value: 100000 } });
+  state = dispatch(state, { type: 'daily', date, posts: 200, note: '' });
   assert.equal(state.rewards.earned.length, 2);
   assert.equal(rewardsSummary(state).nextLevel, 15);
+});
+
+test('legacy unearned performance watermark 37 migrates to action level one and can earn level five', () => {
+  const legacy = setup();
+  delete legacy.rewards.levelSystem; legacy.rewards.levelHighWater = 37;
+  const migrated = initializeRewards(legacy, now);
+  assert.equal(migrated.rewards.levelSystem, 'action-v1');
+  assert.equal(migrated.rewards.levelHighWater, 1);
+  assert.deepEqual(migrated.rewards.earned, []);
+  assert.equal(rewardsSummary(migrated).nextLevel, 5);
+  const grown = dispatch(migrated, { type: 'daily', date, posts: 80, note: '' });
+  assert.deepEqual(grown.rewards.earned.map(event => event.id), ['level:5']);
+  assert.equal(initializeRewards(grown, later), grown);
+});
+
+test('legacy earned and opened milestones survive migration and the same node is never reissued', () => {
+  const legacy = setup(); delete legacy.rewards.levelSystem; legacy.rewards.levelHighWater = 37;
+  legacy.rewards.earned = [{ id: 'level:35', reason: 'level', date, level: 35, openedAt: now.toISOString(), itemId: 'quill' }];
+  let state = initializeRewards(legacy, now);
+  assert.equal(state.rewards.levelHighWater, 35);
+  assert.deepEqual(state.rewards.earned, legacy.rewards.earned);
+  assert.equal(rewardsSummary(state).nextLevel, 40);
+  state = dispatch(state, { type: 'daily', date, posts: 700, note: '' });
+  assert.equal(state.rewards.earned.length, 1);
+  state = dispatch(state, { type: 'daily', date, posts: 780, note: '' });
+  assert.deepEqual(state.rewards.earned.map(event => event.id), ['level:35', 'level:40']);
+  assert.equal(state.rewards.earned[0].itemId, 'quill');
+  assert.deepEqual(validateBackup(JSON.parse(JSON.stringify(state))), state);
+});
+
+test('importing a v0.6 backup cannot restore a stale performance-based high watermark', () => {
+  const legacy = setup(); delete legacy.rewards.levelSystem; legacy.rewards.levelHighWater = 37;
+  let state = dispatch(setup(), { type: 'import', data: legacy });
+  assert.equal(state.rewards.levelSystem, 'action-v1'); assert.equal(state.rewards.levelHighWater, 1);
+  assert.equal(state.rewards.earned.length, 0);
+  legacy.days[date].posts = 200;
+  state = dispatch(state, { type: 'import', data: legacy }, later);
+  assert.equal(state.rewards.levelHighWater, 11); assert.equal(state.rewards.earned.length, 0);
+});
+
+test('action milestones beyond level fifty remain valid through backup and chest opening', () => {
+  let state = dispatch(setup(), { type: 'daily', date, posts: 1980, note: '' });
+  assert.equal(assessAccount(state).level, 100);
+  assert.equal(state.rewards.levelHighWater, 100);
+  assert.ok(state.rewards.earned.some(event => event.id === 'level:100'));
+  assert.equal(rewardsSummary(state).nextLevel, 105);
+  state = openChest(state, 'level:100', now, () => 0);
+  assert.equal(state.rewards.earned.find(event => event.id === 'level:100').itemId, 'quill');
+  assert.deepEqual(validateBackup(JSON.parse(JSON.stringify(state))), state);
+  assert.deepEqual(hudAction({ command: 'open-chest', id: 'level:100' }, state), { type: 'open-chest', id: 'level:100' });
 });
 
 test('daily chest requires fresh automatic completion and duplicate packets do not regrant', () => {
@@ -137,7 +187,7 @@ test('reward validation rejects missing times, numeric zero, forged IDs and inco
   const mutations = [
     rewards => { delete rewards.initializedAt; }, rewards => { rewards.initializedAt = 0; },
     rewards => { rewards.initializedAt = '2026-02-30T00:00:00.000Z'; }, rewards => { rewards.levelHighWater = 0; },
-    rewards => { rewards.levelHighWater = 51; }, rewards => { rewards.version = 2; },
+    rewards => { rewards.levelHighWater = Number.MAX_SAFE_INTEGER + 1; }, rewards => { rewards.version = 2; }, rewards => { rewards.levelSystem = 'forged'; },
     rewards => { delete rewards.earned[0].openedAt; }, rewards => { rewards.earned[0].openedAt = 0; },
     rewards => { delete rewards.earned[0].itemId; }, rewards => { rewards.earned[0].itemId = 'quill'; },
     rewards => { rewards.earned[0].openedAt = now.toISOString(); },
@@ -186,6 +236,7 @@ test('background serializes two tabs opening the same chest and persists languag
 
 test('passive actions and analytics expiry neither award milestones nor move the watermark', () => {
   let state = reduce(newState(), { type: 'settings', username: 'soap628', posts: 2, replies: 10 }, now);
+  state.days[date].posts = 79;
   state.analyticsSummary = {
     period: { label: '2W', days: 14, start: null, end: null },
     impressions: { value: 140, approximate: false, source: 'analytics', at: '2026-08-30T10:00:00Z' },
@@ -194,8 +245,8 @@ test('passive actions and analytics expiry neither award milestones nor move the
   state.days[date].impressions = { value: 100000, approximate: false, source: 'analytics', at: now.toISOString() };
   state = initializeRewards(state, now);
   const nextDay = new Date('2026-09-27T10:00:00Z');
-  assert.equal(state.rewards.levelHighWater, 3);
-  assert.equal(assessAccount(state, nextDay).level, 11, 'expiry selects the newer daily sample');
+  assert.equal(state.rewards.levelHighWater, 4);
+  assert.equal(assessAccount(state, nextDay).level, 4, 'analytics expiry cannot change the action level');
   for (const action of [
     { type: 'language', language: 'en' },
     { type: 'settings', username: 'soap628', posts: 3, replies: 15 },
@@ -205,13 +256,13 @@ test('passive actions and analytics expiry neither award milestones nor move the
   ]) assert.deepEqual(dispatch(state, action, nextDay).rewards, state.rewards, action.type);
   const changedLanguage = dispatch(state, { type: 'language', language: 'en' }, nextDay);
   const grew = dispatch(changedLanguage, { type: 'adjust', kind: 'posts', amount: 1 }, nextDay);
-  assert.deepEqual(grew.rewards.earned.map(event => event.id), ['level:5', 'level:10']);
+  assert.deepEqual(grew.rewards.earned.map(event => event.id), ['level:5']);
   assert.equal(grew.rewards.levelHighWater, assessAccount(grew, nextDay).level);
 });
 
 test('clock rollback skips settlement so reward records remain valid and can be restored', () => {
   const state = setup(), priorDate = new Date('2026-09-25T10:00:00Z');
-  const action = { type: 'capture', username: 'soap628', followers: { value: 100000 } };
+  const action = { type: 'daily', date: '2026-09-25', posts: 1000, note: '' };
   const result = dispatch(state, action, priorDate);
   assert.ok(assessAccount(result, priorDate).level > state.rewards.levelHighWater);
   assert.deepEqual(result.rewards, state.rewards);
@@ -221,7 +272,7 @@ test('clock rollback skips settlement so reward records remain valid and can be 
 test('restoring an early empty backup cannot carry retained rewards or milestone history to another account', () => {
   const bound = initializeRewards(reduce(newState(), { type: 'bind', username: 'account_a' }, now), now);
   const earlyBackup = JSON.parse(JSON.stringify(bound));
-  const grown = dispatch(bound, { type: 'capture', username: 'account_a', followers: { value: 100000 } });
+  const grown = dispatch(bound, { type: 'daily', date, posts: 200, note: '' });
   const restored = dispatch(grown, { type: 'import', data: earlyBackup }, later);
   assert.equal(Object.keys(restored.days).length, 0);
   assert.equal(Object.keys(restored.posts).length, 0);

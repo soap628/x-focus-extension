@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { newState, STORAGE_KEY } from '../core.js';
+import { newState, STORAGE_KEY, reduce, dayKey } from '../core.js';
 let listener, installed;
 const storage = { [STORAGE_KEY]: newState() };
 globalThis.chrome = {
@@ -12,6 +12,26 @@ await import('../background.js');
 const panel = { id: chrome.runtime.id, url: chrome.runtime.getURL('sidepanel.html') };
 const xTab = { id: chrome.runtime.id, url: 'https://x.com/soap628', tab: { id: 42 } };
 const dispatch = (message, sender = panel) => new Promise(resolve => listener(message, sender, resolve));
+
+test('first HUD read persists action-level migration and a reload keeps the same experience', async () => {
+  const now = new Date();
+  let legacy = reduce(newState(), { type: 'settings', username: 'soap628', posts: 2, replies: 10 }, now);
+  legacy = reduce(legacy, { type: 'daily', date: dayKey(now), posts: 19, replies: 4, note: '' }, now);
+  legacy.rewards = { version: 1, initializedAt: now.toISOString(), levelHighWater: 37, earned: [] };
+  storage[STORAGE_KEY] = legacy;
+  const response = await dispatch({ type: 'hud' }, xTab);
+  assert.equal(response.hud.totalXp, 99);
+  assert.equal(response.hud.level, 1);
+  assert.equal(storage[STORAGE_KEY].rewards.levelSystem, 'action-v1');
+  assert.equal(storage[STORAGE_KEY].rewards.levelHighWater, 1);
+  assert.deepEqual(storage[STORAGE_KEY].rewards.earned, []);
+  installed();
+  const restored = await dispatch({ type: 'hud' }, xTab);
+  assert.equal(restored.hud.totalXp, 99);
+  assert.equal(restored.hud.level, 1);
+  assert.deepEqual(storage[STORAGE_KEY].rewards.earned, []);
+  storage[STORAGE_KEY] = newState();
+});
 test('background serializes simultaneous increments from multiple panels', async () => {
   installed();
   const results = await Promise.all(Array.from({ length: 25 }, () => dispatch({ type: 'adjust', kind: 'replies', amount: 1 })));

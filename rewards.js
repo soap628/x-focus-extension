@@ -19,8 +19,14 @@ export const REWARD_ITEMS = [
 ];
 
 export function initializeRewards(state, now = new Date()) {
-  if (state.rewards) return state;
-  return { ...state, rewards: { version: 1, initializedAt: now.toISOString(), levelHighWater: assessAccount(state, now).level, earned: [] } };
+  if (state.rewards?.levelSystem === 'action-v1') return state;
+  const level = assessAccount(state).level;
+  if (state.rewards) {
+    // Preserve actual chests, not an unearned performance-score baseline.
+    const awardedLevel = state.rewards.earned.reduce((highest, event) => event.reason === 'level' ? Math.max(highest, event.level) : highest, 1);
+    return { ...state, rewards: { ...state.rewards, levelSystem: 'action-v1', levelHighWater: Math.max(level, awardedLevel) } };
+  }
+  return { ...state, rewards: { version: 1, levelSystem: 'action-v1', initializedAt: now.toISOString(), levelHighWater: level, earned: [] } };
 }
 
 function autoComplete(day) {
@@ -56,11 +62,10 @@ export function settleRewards(before, after, action, now = new Date()) {
   const add = event => {
     if (rewards.earned.length < MAX_REWARDS && !rewards.earned.some(saved => saved.id === event.id)) rewards.earned.push({ ...event, openedAt: null, itemId: null });
   };
-  // Evaluate both states at the same instant. A passive language/settings
-  // change, or expiry that selects another analytics source, is not growth.
-  const scoreAction = ['capture', 'network', 'daily', 'adjust'].includes(action.type);
+  // Only local recorded actions earn EXP; Analytics and followers never do.
+  const scoreAction = ['network', 'daily', 'adjust'].includes(action.type);
   if (scoreAction && level > assessAccount(previous, now).level) {
-    for (let milestone = (Math.floor(rewards.levelHighWater / 5) + 1) * 5; milestone <= level; milestone += 5) add({ id: `level:${milestone}`, reason: 'level', date, level: milestone });
+    for (let milestone = (Math.floor(rewards.levelHighWater / 5) + 1) * 5; milestone <= level && rewards.earned.length < MAX_REWARDS; milestone += 5) add({ id: `level:${milestone}`, reason: 'level', date, level: milestone });
     rewards.levelHighWater = Math.max(rewards.levelHighWater, level);
   }
   const priorDay = before.days[date], currentDay = next.days[date];
@@ -71,7 +76,7 @@ export function settleRewards(before, after, action, now = new Date()) {
 
 export function openChest(state, id, now = new Date(), random = Math.random) {
   const initialized = initializeRewards(state, now);
-  if (id !== undefined && (typeof id !== 'string' || !/^(?:daily:\d{4}-\d{2}-\d{2}|level:\d{1,2})$/.test(id))) throw new Error('无效的宝箱编号');
+  if (id !== undefined && (typeof id !== 'string' || !/^(?:daily:\d{4}-\d{2}-\d{2}|level:\d{1,16})$/.test(id))) throw new Error('无效的宝箱编号');
   const selected = id === undefined ? initialized.rewards.earned.find(event => event.openedAt === null) : initialized.rewards.earned.find(event => event.id === id);
   if (!selected) throw new Error('暂无可开启的宝箱');
   if (selected.openedAt !== null) return initialized;
@@ -86,7 +91,7 @@ export function openChest(state, id, now = new Date(), random = Math.random) {
 }
 
 export function rewardsSummary(state) {
-  const rewards = state.rewards;
+  const rewards = initializeRewards(state).rewards;
   const earned = rewards?.earned || [];
   const counts = new Map();
   let latest = null;
@@ -97,5 +102,5 @@ export function rewardsSummary(state) {
   const items = REWARD_ITEMS.map(entry => ({ ...entry, owned: counts.has(entry.id), count: counts.get(entry.id) || 0 }));
   const nextMilestone = (Math.floor((rewards?.levelHighWater || 1) / 5) + 1) * 5;
   const lastItem = latest ? items.find(entry => entry.id === latest.itemId) : null;
-  return { pending: earned.filter(event => event.openedAt === null).length, totalOwned: counts.size, totalItems: items.length, totalEarned: earned.length, items, lastDrop: lastItem ? { ...lastItem, chestId: latest.id, openedAt: latest.openedAt } : null, nextLevel: nextMilestone <= 50 ? nextMilestone : null };
+  return { pending: earned.filter(event => event.openedAt === null).length, totalOwned: counts.size, totalItems: items.length, totalEarned: earned.length, items, lastDrop: lastItem ? { ...lastItem, chestId: latest.id, openedAt: latest.openedAt } : null, nextLevel: nextMilestone };
 }

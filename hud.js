@@ -18,10 +18,10 @@
       '<div class="heading"><span class="brand-mark">' + emblem + '</span><b data-i18n="title"></b><div class="controls"><button class="icon settings-toggle" data-i18n-aria="settings" aria-expanded="false">' + gear + '</button><button class="icon minimize" data-i18n-aria="collapse"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8h10"/></svg></button></div></div>',
       '<div class="hero">' + crest + '<div class="identity"><div class="hero-line"><span class="name"></span><span class="verified-badge" data-i18n-aria="verified" hidden>✓</span></div><div class="rank"></div><button class="level-row assessment-toggle" data-i18n-aria="assessmentButton" aria-expanded="false"><span class="level">LV. 01</span><span class="rank-stars" aria-hidden="true">✧</span><span class="level-detail" data-i18n="details"></span></button></div><span class="hero-spark" aria-hidden="true">✧</span></div>',
       '<div class="xp-row"><span data-i18n="growth"></span><div class="track" role="progressbar" data-i18n-aria="growthProgress" aria-valuemin="0" aria-valuemax="100"><div class="fill"></div></div><span class="xp-num"></span></div>',
-      '<section class="assessment-panel" hidden><div class="assessment-heading"><h3 data-i18n="balanced"></h3><span class="assessment-score"></span></div><p class="assessment-coverage"></p><div class="dimensions"></div><p class="assessment-xp"></p><details class="score-rules"><summary data-i18n="scoringRules"></summary><p data-i18n="rule1"></p><p data-i18n="rule2"></p><p data-i18n="rule3"></p></details></section>',
+      '<section class="assessment-panel" hidden><div class="assessment-heading"><h3 data-i18n="actionGrowth"></h3><span class="assessment-score"></span></div><p class="assessment-coverage"></p><div class="dimensions"></div><p class="assessment-xp"></p><details class="score-rules"><summary data-i18n="scoringRules"></summary><p data-i18n="rule1"></p><p data-i18n="rule2"></p><p data-i18n="rule3"></p></details></section>',
       '<div class="quest-heading"><span data-i18n="quests"></span><span class="quest-total">0 / 2</span></div>',
-      '<div class="quest" data-kind="posts" style="--bar:#d94134;--bar-dark:#6b130e;--glow:#da31273d"><div class="quest-line"><span class="quest-icon">' + quill + '</span><span class="quest-name" data-i18n="posts"></span><span class="quest-reward">+20 XP</span><span class="count"></span></div><div class="track" role="progressbar" data-i18n-aria="postsToday" aria-valuemin="0"><div class="fill"></div></div></div>',
-      '<div class="quest" data-kind="replies" style="--bar:#398fcb;--bar-dark:#123956;--glow:#328bdd40"><div class="quest-line"><span class="quest-icon">' + reply + '</span><span class="quest-name" data-i18n="replies"></span><span class="quest-reward">+5 XP</span><span class="count"></span></div><div class="track" role="progressbar" data-i18n-aria="repliesToday" aria-valuemin="0"><div class="fill"></div></div></div>',
+      '<div class="quest" data-kind="posts" style="--bar:#d94134;--bar-dark:#6b130e;--glow:#da31273d"><div class="quest-line"><span class="quest-icon">' + quill + '</span><span class="quest-name" data-i18n="posts"></span><span class="quest-reward">+5 EXP</span><span class="count"></span></div><div class="track" role="progressbar" data-i18n-aria="postsToday" aria-valuemin="0"><div class="fill"></div></div></div>',
+      '<div class="quest" data-kind="replies" style="--bar:#398fcb;--bar-dark:#123956;--glow:#328bdd40"><div class="quest-line"><span class="quest-icon">' + reply + '</span><span class="quest-name" data-i18n="replies"></span><span class="quest-reward">+1 EXP</span><span class="count"></span></div><div class="track" role="progressbar" data-i18n-aria="repliesToday" aria-valuemin="0"><div class="fill"></div></div></div>',
       '<div class="completion" hidden><span class="seal">' + emblem + '</span><span data-i18n="completed"></span></div>',
       '<div class="metrics"><div class="followers"><span class="metric-label"></span><span class="metric-value">—</span><span class="delta"></span></div><div class="verified-followers"><span class="metric-label" data-i18n="verifiedFollowers"></span><span class="metric-value">—</span></div><div class="views"><span class="metric-label"></span><span class="metric-value">—</span></div><div class="engagements"><span class="metric-label"></span><span class="metric-value">—</span></div></div>',
       '<button class="treasure-strip inventory-toggle" data-i18n-aria="collectionButton" aria-expanded="false"><img class="treasure-chest" alt=""><span class="treasure-copy"><b data-i18n="collection"></b><span class="collection-count"></span></span><span class="chest-count"></span><span class="treasure-chevron" aria-hidden="true">›</span></button>',
@@ -104,7 +104,6 @@
     }
     function sampled(dimension) { return /已采集/.test(dimension.sourceLabel || '') || dimension.period?.label === '近 28 天内已采集日'; }
     function dimensionSource(dimension) {
-      if (dimension.key === 'action') return t('actionSource');
       if (['followers', 'verifiedFollowers'].includes(dimension.key)) {
         const date = (dimension.sourceLabel || '').match(/\d{4}-\d{2}-\d{2}/)?.[0] || dimension.at?.slice(0, 10) || '';
         return t('snapshot', { date });
@@ -113,21 +112,17 @@
       if (dimension.period) return t('periodDays', { label: periodLabel(dimension), days: dimension.period.days });
       return t('unknown');
     }
-    function dimensionUnit(dimension) { return dimension.key === 'action' ? 'XP' : t(['followers', 'verifiedFollowers'].includes(dimension.key) ? 'people' : 'perDay'); }
     function renderDimensions(dimensions) {
       const list = $('.dimensions'); list.replaceChildren();
       for (const dimension of dimensions) {
         const row = document.createElement('div'); row.className = 'dimension';
         const heading = document.createElement('div'); heading.className = 'dimension-heading';
-        const name = document.createElement('span'); name.textContent = t('dim_' + dimension.key);
-        const score = document.createElement('b'); score.textContent = dimension.score == null ? t('unknown') : dimension.score + ' / 200';
+        const name = document.createElement('span'); name.textContent = t('lifetime_' + dimension.key);
+        const score = document.createElement('b'); score.textContent = dimension.xp.toLocaleString('en-US') + ' EXP';
         heading.append(name, score);
-        const track = document.createElement('div'); track.className = 'dimension-track';
-        const fill = document.createElement('i'); fill.style.width = (dimension.score || 0) / 2 + '%'; track.append(fill);
-        const detail = document.createElement('p'), unit = dimensionUnit(dimension);
-        detail.textContent = dimension.value == null ? t('unknownScore') : approximate(dimension) + Math.round(dimension.value).toLocaleString('en-US') + ' ' + unit + ' · ' + dimensionSource(dimension);
-        detail.title = t('benchmark', { value: dimension.benchmark.toLocaleString('en-US'), unit }) + (dimension.at ? ' · ' + t('readAt', { date: dimension.at }) : '');
-        row.append(heading, track, detail); list.append(row);
+        const detail = document.createElement('p');
+        detail.textContent = t('actionCalculation', { count: dimension.count.toLocaleString('en-US'), rate: dimension.rate });
+        row.append(heading, detail); list.append(row);
       }
     }
     function renderInventory(reveal = false) {
@@ -175,7 +170,7 @@
     function feedback(previous, next) {
       if (!previous || previous.username !== next.username || previous.date !== next.date || previous.goals.posts !== next.goals.posts || previous.goals.replies !== next.goals.replies) return;
       const posts = next.posts - previous.posts, replies = next.replies - previous.replies, gain = next.totalXp - previous.totalXp;
-      if (posts < 0 || replies < 0 || gain <= 0 || gain !== posts * 20 + replies * 5) return;
+      if (posts < 0 || replies < 0 || gain <= 0 || gain !== posts * 5 + replies) return;
       clearTimeout(rewardTimer); $('.card').classList.remove('level-up', 'quest-cleared'); $('.reward-float').classList.remove('show');
       for (const kind of ['posts', 'replies']) $('.quest[data-kind="' + kind + '"]').classList.remove('gained');
       void $('.card').offsetWidth;
@@ -202,13 +197,13 @@
       $('.rank').textContent = t('rank' + tier); $('.rank-stars').textContent = '✧'.repeat(tier + 1); $('.rank').title = t('rankHint');
       $('.hud').style.setProperty('--aura', ['#94aecb', '#a9b99e', '#b4a1cd', '#dfc48b'][tier]);
       const assessment = next.assessment;
-      $('.xp-num').textContent = t('points', { score: assessment.score });
-      $('.xp-row').title = t('scoreHint', { score: assessment.score, next: t(assessment.atMax ? 'maxLevel' : 'nextPoints', { points: assessment.toNext }), coverage: assessment.coverage });
+      $('.xp-num').textContent = next.xp + ' / 100 EXP';
+      $('.xp-row').title = t('experienceHint', { total: next.totalXp.toLocaleString('en-US'), remaining: assessment.toNext });
       $('.xp-row .fill').style.width = assessment.progress + '%';
       $('.xp-row .track').setAttribute('aria-valuenow', String(assessment.progress)); $('.xp-row .track').setAttribute('aria-valuetext', $('.xp-row').title);
-      $('.assessment-toggle').title = t('scoreDetail') + (assessment.provisional ? ' · ' + t('incomplete') : '');
-      $('.assessment-score').textContent = assessment.score + ' / 1000';
-      $('.assessment-coverage').textContent = t(assessment.provisional ? 'provisional' : 'allMetrics') + ' · ' + assessment.coverage + ' / 5 · ' + t(assessment.atMax ? 'maxLevel' : 'nextPoints', { points: assessment.toNext });
+      $('.assessment-toggle').title = t('scoreDetail');
+      $('.assessment-score').textContent = next.totalXp.toLocaleString('en-US') + ' EXP';
+      $('.assessment-coverage').textContent = t('nextPoints', { points: assessment.toNext });
       $('.assessment-xp').textContent = t('lifetimeXp', { xp: compactNumber(next.totalXp) }); renderDimensions(assessment.dimensions);
       for (const kind of ['posts', 'replies']) {
         const quest = $('.quest[data-kind="' + kind + '"]'), goal = next.goals[kind], count = next[kind];
@@ -230,7 +225,7 @@
       const verified = next.verifiedFollowers;
       $('.verified-followers .metric-value').textContent = verified ? approximate(verified) + compactNumber(verified.value) : '—';
       $('.verified-followers').title = verified ? t('verifiedFansHint', { date: verified.date, value: approximate(verified) + verified.value }) : t('verifiedFansEmpty');
-      const exposure = assessment.dimensions.find(dimension => dimension.key === 'impressions'), engagement = assessment.dimensions.find(dimension => dimension.key === 'engagements');
+      const exposure = next.analytics?.impressions, engagement = next.analytics?.engagements;
       for (const [selector, dimension, key] of [['.views', exposure, 'impressions'], ['.engagements', engagement, 'engagements']]) {
         const hasPeriod = dimension?.value != null && dimension.period, label = hasPeriod ? periodLabel(dimension) : '';
         const short = hasPeriod && !sampled(dimension) && label.length <= 4;

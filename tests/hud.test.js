@@ -17,12 +17,12 @@ test('HUD summary excludes private notes, post bodies and IDs', () => {
   assert.equal(summary.username, 'soap628');
   for (const secret of ['private-note-marker', 'private-post-marker', '999123456789', 'loggedPostIds', 'settings']) assert.ok(!encoded.includes(secret));
 });
-test('XP follows recorded actions; changing targets never grants experience', () => {
+test('EXP follows posts at five and replies at one; changing targets never grants experience', () => {
   let state = setup();
   Object.assign(state.days['2026-09-26'], { posts: 4, replies: 6 });
   const initial = hudSummary(state, now);
-  assert.deepEqual([initial.level, initial.xp, initial.totalXp], [5, 10, 110]);
-  assert.equal(initial.assessment.score, 95);
+  assert.deepEqual([initial.level, initial.xp, initial.totalXp], [1, 26, 26]);
+  assert.equal(initial.assessment.score, 26);
   state = reduce(state, hudAction({ command: 'goals', username: 'another', posts: 1, replies: 1 }, state), now);
   assert.equal(hudSummary(state, now).totalXp, initial.totalXp);
   assert.equal(state.settings.username, 'soap628');
@@ -32,7 +32,7 @@ test('Beijing midnight resets task bars while preserving XP and dated follower r
   const day = state.days['2026-09-26']; day.posts = 2; day.replies = 10;
   day.followers = { value: 248, approximate: false }; day.impressions = { value: 1200, approximate: false };
   const next = hudSummary(state, new Date('2026-09-26T16:00:00Z'));
-  assert.deepEqual([next.date, next.posts, next.replies, next.totalXp], ['2026-09-27', 0, 0, 90]);
+  assert.deepEqual([next.date, next.posts, next.replies, next.totalXp], ['2026-09-27', 0, 0, 20]);
   assert.equal(next.followers.date, '2026-09-26'); assert.equal(next.views, null); assert.equal(next.complete, false);
 });
 test('observed post-view increments are labeled separately from account impressions', () => {
@@ -84,9 +84,12 @@ test('HUD mounts once in Shadow DOM, updates bars, and keeps edits scoped to the
   root.querySelector('.assessment-toggle').click();
   assert.equal(root.querySelector('.settings').hidden, true);
   assert.equal(root.querySelector('.assessment-panel').hidden, false);
-  assert.equal(root.querySelectorAll('.dimension').length, 5);
-  assert.match(root.querySelector('.assessment-coverage').textContent, /暂定评级 · 1 \/ 5/);
-  assert.equal([...root.querySelectorAll('.dimension b')].filter(n => n.textContent === '未采集').length, 4);
+  assert.equal(root.querySelectorAll('.dimension').length, 2);
+  assert.equal(root.querySelector('.xp-num').textContent, '5 / 100 EXP');
+  assert.equal(root.querySelector('.assessment-coverage').textContent, '距下一级 95 EXP');
+  assert.match(root.querySelector('.dimensions').textContent, /累计发帖5 EXP1 条 × 5 EXP/);
+  assert.match(root.querySelector('.dimensions').textContent, /累计回复0 EXP0 条 × 1 EXP/);
+  assert.doesNotMatch(root.querySelector('.assessment-panel').textContent, /满分|暂定|200|1000|五项/);
   state = reduce(state, { type: 'capture', username: 'soap628', posts: [], blueVerified: true, verifiedFollowers: { value: 2200, approximate: true }, analyticsSummary: { period: { label: '2W', days: 14, start: null, end: null }, impressions: { value: 98000, approximate: true }, engagements: { value: 3200, approximate: true } } }, now);
   hud.update(hudSummary(state, now));
   assert.equal(root.querySelector('.verified-badge').hidden, false);
@@ -95,6 +98,11 @@ test('HUD mounts once in Shadow DOM, updates bars, and keeps edits scoped to the
   assert.equal(root.querySelector('.views .metric-value').textContent, '≈98k');
   assert.match(root.querySelector('.views').title, /14 天日均/);
   assert.equal(root.querySelector('.engagements .metric-value').textContent, '≈3,200');
+  assert.equal(root.querySelector('.level').textContent, 'LV. 01');
+  assert.equal(root.querySelector('.xp-num').textContent, '5 / 100 EXP');
+  assert.match(root.querySelector('.views').title, /不影响等级/);
+  assert.equal(root.querySelector('.quest[data-kind="posts"] .quest-reward').textContent, '+5 EXP');
+  assert.equal(root.querySelector('.quest[data-kind="replies"] .quest-reward').textContent, '+1 EXP');
   state = reduce(state, { type: 'capture', username: 'soap628', posts: [], blueVerified: false }, now);
   hud.update(hudSummary(state, now));
   assert.equal(root.querySelector('.verified-badge').hidden, true);

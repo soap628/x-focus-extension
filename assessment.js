@@ -1,17 +1,10 @@
 import { dayKey, recentDates, validDay } from './core.js';
 
-// The score is deliberately a snapshot, not a balance that gains points each
-// time analytics is opened. Every dimension has the same 200-point ceiling.
-const DIMENSIONS = [
-  { key: 'action', label: '行动', unit: 'XP', benchmark: 20000 },
-  { key: 'followers', label: '总粉丝', unit: '人', benchmark: 100000 },
-  { key: 'verifiedFollowers', label: '认证粉丝', unit: '人', benchmark: 25000 },
-  { key: 'impressions', label: '曝光', unit: '次 / 日', benchmark: 100000 },
-  { key: 'engagements', label: '互动', unit: '次 / 日', benchmark: 10000 }
-];
+export const ACTION_RATES = { posts: 5, replies: 1 };
+export const EXP_PER_LEVEL = 100;
 const validValue = value => typeof value === 'number' && Number.isFinite(value) && value >= 0;
 const validMetric = metric => metric && validValue(metric.value);
-const safeCount = value => validValue(value) ? value : 0;
+const safeCount = value => Number.isSafeInteger(value) && value >= 0 ? value : 0;
 
 function recentTimestamp(value, date, now, timeZone) {
   if (typeof value !== 'string') return false;
@@ -22,7 +15,15 @@ function recentTimestamp(value, date, now, timeZone) {
 }
 
 export function actionExperience(state) {
-  return Object.values(state.days || {}).reduce((sum, day) => sum + safeCount(day.posts) * 20 + safeCount(day.replies) * 5, 0);
+  const actions = actionCounts(state);
+  return actions.postXp + actions.replyXp;
+}
+
+export function actionCounts(state) {
+  const counts = Object.values(state.days || {}).reduce((total, day) => ({
+    posts: total.posts + safeCount(day.posts), replies: total.replies + safeCount(day.replies)
+  }), { posts: 0, replies: 0 });
+  return { ...counts, postXp: counts.posts * ACTION_RATES.posts, replyXp: counts.replies * ACTION_RATES.replies };
 }
 
 export function latestMetric(state, key, date) {
@@ -83,41 +84,27 @@ function sampledImpressions(state, date, now) {
   };
 }
 
-function followerReading(metric) {
-  return metric ? { ...metric, sourceLabel: `${metric.date} 快照` } : null;
-}
-
-export function assessAccount(state, now = new Date()) {
+// Performance snapshots are display-only and never contribute experience.
+export function accountAnalytics(state, now = new Date()) {
   const date = dayKey(now, state.settings?.timeZone);
   const summary = recentSummary(state, date, now);
-  const readings = {
-    action: { value: actionExperience(state), approximate: false, sourceLabel: '本机累计 · 发帖 20 XP / 回复 5 XP', at: state.tracking?.lastPublishAt || null },
-    followers: followerReading(latestMetric(state, 'followers', date)),
-    verifiedFollowers: followerReading(latestMetric(state, 'verifiedFollowers', date)),
+  return {
     impressions: averageMetric(summary, 'impressions', date, now, state.settings?.timeZone) || sampledImpressions(state, date, now),
     engagements: averageMetric(summary, 'engagements', date, now, state.settings?.timeZone)
   };
-  const dimensions = DIMENSIONS.map(definition => {
-    const reading = readings[definition.key];
-    return {
-      ...definition, max: 200,
-      value: reading?.value ?? null,
-      score: reading ? Math.min(200, Math.round(200 * Math.log1p(reading.value) / Math.log1p(definition.benchmark))) : null,
-      sourceLabel: reading?.sourceLabel || '未采集',
-      approximate: reading?.approximate || false,
-      at: reading?.at || null,
-      ...(reading?.period ? { period: reading.period, totalValue: reading.totalValue } : {})
-    };
-  });
-  const score = dimensions.reduce((sum, dimension) => sum + (dimension.score ?? 0), 0);
-  const coverage = dimensions.filter(dimension => dimension.score !== null).length;
-  const atMax = score >= 980;
+}
+
+export function assessAccount(state) {
+  const actions = actionCounts(state);
+  const totalXp = actions.postXp + actions.replyXp;
+  const progress = totalXp % EXP_PER_LEVEL;
   return {
-    version: 'balanced-v1', score, maxScore: 1000,
-    level: Math.min(50, 1 + Math.floor(score / 20)),
-    progress: atMax ? 100 : (score % 20) / 20 * 100,
-    toNext: atMax ? 0 : 20 - score % 20,
-    atMax, coverage, total: DIMENSIONS.length, provisional: coverage < DIMENSIONS.length,
-    dimensions
+    version: 'action-v1', score: totalXp, totalXp, maxScore: null, expPerLevel: EXP_PER_LEVEL,
+    level: 1 + Math.floor(totalXp / EXP_PER_LEVEL), progress, toNext: EXP_PER_LEVEL - progress,
+    atMax: false, coverage: 2, total: 2, provisional: false, actions,
+    dimensions: [
+      { key: 'posts', count: actions.posts, rate: ACTION_RATES.posts, xp: actions.postXp },
+      { key: 'replies', count: actions.replies, rate: ACTION_RATES.replies, xp: actions.replyXp }
+    ]
   };
 }

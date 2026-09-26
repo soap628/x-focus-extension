@@ -9,8 +9,7 @@ function demoState() {
   state = reduce(state, { type: 'capture', username: 'soap628', posts: [], verifiedFollowers: { value: 2200, approximate: true }, blueVerified: true, analyticsSummary: { period: { label: '2W', days: 14, start: null, end: null }, impressions: { value: 98000, approximate: true }, engagements: { value: 3200, approximate: true } } }, now);
   state.days[today].auto = { posts: 1, replies: 6 };
   state = initializeRewards(state, now);
-  // Fictional inventory for this offline preview only; never written to extension storage.
-  state.rewards.earned = [15, 20, 25, 30, 35].map((level, index) => ({ id: `level:${level}`, reason: 'level', level, date: today, openedAt: index < 3 ? now.toISOString() : null, itemId: ['quill', 'compass', 'ring'][index] || null }));
+  // Start with no chests; simulated new actions unlock the real daily reward.
   return state;
 }
 let state = demoState();
