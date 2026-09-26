@@ -14,7 +14,13 @@
   }
   function loggedInUsername(doc) {
     const href = doc.querySelector('a[data-testid="AppTabBar_Profile_Link"]')?.getAttribute('href');
-    try { const path = new URL(href, 'https://x.com').pathname; const match = path.match(/^\/([a-z0-9_]{1,15})\/?$/i); return href && match ? match[1].toLowerCase() : null; } catch { return null; }
+    try { const path = xPath(href); const match = path?.match(/^\/([a-z0-9_]{1,15})\/?$/i); if (href && match) return match[1].toLowerCase(); } catch { /* Fall back only to the signed-in account switcher below. */ }
+    const switchers = [...doc.querySelectorAll('[data-testid="SideNav_AccountSwitcher_Button"]')].filter(visible);
+    if (switchers.length !== 1) return null;
+    // Separate text leaves: textContent can concatenate "Soap" + "@soap628".
+    const accountText = [switchers[0], ...switchers[0].querySelectorAll('*')].filter(node => !node.children.length).map(node => node.textContent).join(' ');
+    const handles = [...new Set([...accountText.matchAll(/(?:^|[^a-z0-9_@])@([a-z0-9_]{1,15})(?![a-z0-9_])/gi)].map(match => match[1].toLowerCase()))];
+    return handles.length === 1 ? handles[0] : null;
   }
   const normalize = text => String(text || '').replace(/\s+/g, ' ').trim().toLowerCase();
   const metricLabels = {
@@ -206,6 +212,36 @@
     const unique = [...new Map(values.map(v => [v.value, v])).values()];
     return unique.length === 1 ? [{ date: today, ...unique[0] }] : [];
   }
+  const embeddedPostSelector = '[data-testid="quoteTweet"],[data-testid="card.wrapper"],[role="link"]:not(a)';
+  function xPath(href) {
+    try {
+      const url = new URL(href, 'https://x.com');
+      return /^https?:$/.test(url.protocol) && /^(?:www\.)?(?:x|twitter)\.com$/.test(url.hostname) ? url.pathname.toLowerCase() : null;
+    } catch { return null; }
+  }
+  function outerNode(node, article) {
+    return !!node && node.closest('article[data-testid="tweet"]') === article && !node.closest(embeddedPostSelector);
+  }
+  function postKind(article) {
+    // DOM classification is deliberately narrower than the response parser.
+    // A reply can omit its context on Home/detail/thread views, so the absence
+    // of a "Replying to" label must never mean "original post" there.
+    const text = article.querySelector('[data-testid="tweetText"]');
+    const contexts = [...article.querySelectorAll('div,span')].filter(node => outerNode(node, article) && visible(node)
+      && !node.closest('[data-testid="tweetText"],[data-testid="User-Name"],[data-testid="socialContext"]')
+      && !(text && node.contains(text)) && !node.querySelector('[data-testid="User-Name"]'));
+    const profileLinks = node => [...node.querySelectorAll('a[href]')].filter(link => /^\/[a-z0-9_]{1,15}\/?$/i.test(xPath(link.getAttribute('href')) || '') && /^@/.test(link.textContent.trim()));
+    const social = [...article.querySelectorAll('[data-testid="socialContext"]')].filter(visible);
+    // Only a known pin label is harmless; translated or unknown social context
+    // is not reliable enough to award an action.
+    if (social.some(node => !/^(pinned|置顶|已置顶|已置頂|置頂)$/i.test(node.textContent.trim()))) return undefined;
+    if (article.querySelector('[data-testid="quoteTweet"]')
+      || [...article.querySelectorAll('[data-testid="card.wrapper"],[role="link"]:not(a)')].some(node => node.querySelector('time,a[href*="/status/"]'))) return undefined;
+    if (contexts.some(node => /^(?:replying to\b|回复(?:给|至)?\s*|回覆(?:給|至)?\s*)/i.test(node.textContent.trim()) && profileLinks(node).length)) return 'replies';
+    // Even the profile's Posts tab can contain a self-reply in a standalone
+    // cell with no visible context. Its type needs a network/publish proof.
+    return undefined;
+  }
   function scan(doc, username, pathname, now = new Date()) {
     const result = { username, followers: null, posts: [], analytics: scanAnalytics(doc, username, pathname, now), ...scanAccountMetrics(doc, username, pathname, now) };
     if (!/^[a-z0-9_]{1,15}$/i.test(username)) return result;
@@ -224,16 +260,19 @@
       }
     }
     for (const article of doc.querySelectorAll('article[data-testid="tweet"]')) {
+      if (!visible(article)) continue;
       // First timestamp is the outer post, so a quoted post cannot change its owner.
       const time = article.querySelector('time[datetime]');
+      if (!outerNode(time, article)) continue;
       const status = time?.closest('a[href]');
-      const match = status?.getAttribute('href')?.match(/^\/([a-z0-9_]+)\/status\/(\d+)/i);
+      const match = xPath(status?.getAttribute('href'))?.match(/^\/([a-z0-9_]{1,15})\/status\/(\d{1,30})\/?$/i);
       if (!match || match[1].toLowerCase() !== owner) continue;
-      const viewLink = [...article.querySelectorAll('a[href]')].find(a => new URL(a.getAttribute('href'), 'https://x.com').pathname.toLowerCase() === `/${owner}/status/${match[2]}/analytics`);
-      if (!viewLink) continue;
-      const count = parseCount(viewLink.getAttribute('aria-label') || '') || parseCount(viewLink.textContent);
-      if (!count) continue;
-      result.posts.push({ id: match[2], views: count.value, approximate: count.approximate, createdAt: time.getAttribute('datetime'), text: article.querySelector('[data-testid="tweetText"]')?.textContent || '图片、视频或无文字帖子' });
+      const viewLink = [...article.querySelectorAll('a[href]')].find(a => outerNode(a, article) && xPath(a.getAttribute('href')) === `/${owner}/status/${match[2]}/analytics`);
+      const count = viewLink && (parseCount(viewLink.getAttribute('aria-label') || '') || parseCount(viewLink.textContent));
+      const kind = postKind(article);
+      const edited = [...article.querySelectorAll('a[href],span')].some(node => outerNode(node, article) && !node.closest('[data-testid="tweetText"]')
+        && (/\/status\/\d+\/history\/?$/.test(xPath(node.getAttribute('href')) || '') || /^(edited|last edited|已编辑|已編輯)$/i.test(node.textContent.trim())));
+      result.posts.push({ id: match[2], views: count ? count.value : null, approximate: count ? count.approximate : false, createdAt: time.getAttribute('datetime'), text: article.querySelector('[data-testid="tweetText"]')?.textContent || '图片、视频或无文字帖子', ...(kind ? { kind } : {}), ...(edited ? { edited: true } : {}) });
     }
     return result;
   }

@@ -30,6 +30,25 @@ function setup() {
   return { hud, document, window, commands, root: document.querySelector('#x-focus-hud').shadowRoot, state: () => state };
 }
 
+test('mini capture indicator opens diagnostics and distinguishes saved actions from a live connection', async () => {
+  const e = setup(), q = s => e.root.querySelector(s);
+  q('.minimize').click(); await tick(); await tick();
+  assert.equal(e.state().hudPreferences.mode, 'mini');
+  assert.equal(q('.connection-time').textContent, '尚未记录发帖或回复');
+  e.hud.setConnection({ status: 'degraded', code: 'observer-detached' });
+  assert.match(q('.capture-indicator').title, /刷新 X/);
+  assert.equal(q('.capture-indicator').classList.contains('degraded'), true);
+  q('.capture-indicator').click(); await tick(); await tick(); await tick();
+  assert.equal(e.state().hudPreferences.mode, 'full');
+  assert.equal(q('.connection-panel').hidden, false);
+  assert.equal(q('.scan-now').disabled, false, 'page recovery remains available without the live transport');
+  e.hud.setConnection({ status: 'error', code: 'handshake-timeout' });
+  assert.equal(q('.scan-now').disabled, false);
+  e.hud.setConnection({ status: 'error', code: 'stopped' });
+  assert.equal(q('.scan-now').disabled, true, 'a destroyed extension still requires a reload');
+  e.hud.destroy();
+});
+
 test('switching HUD language preserves draft goal inputs and localizes all rendered guidance', async () => {
   const e = setup(), q = s => e.root.querySelector(s);
   q('.settings-toggle').click(); q('input[name="posts"]').value = '17';

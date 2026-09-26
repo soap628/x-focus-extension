@@ -111,3 +111,21 @@ test('HUD diagnostics contain only tracking timestamps, without leaking stored p
   assert.deepEqual(summary.tracking, { startedAt: now.toISOString(), lastNetworkAt: now.toISOString(), lastPageAt: now.toISOString(), lastPublishAt: null });
   assert.doesNotMatch(JSON.stringify(summary), /private-note|private-post/);
 });
+
+test('a replaced page transport reports degraded capture rather than a healthy handshake', async () => {
+  const e = environment(); await settle();
+  e.sendPacket({ ready: true, username: 'soap628', enabled: true, transport: { fetch: false, xhr: true } });
+  assert.equal(e.status().status, 'degraded');
+  assert.equal(e.status().code, 'observer-detached');
+  e.sendPacket({ ready: true, username: 'soap628', enabled: true, transport: { fetch: true, xhr: true } });
+  assert.equal(e.status().status, 'ready');
+});
+
+test('identity buffering is allowed during login detection but never for pause or another active account', async () => {
+  const waiting = environment({ account: null }); await settle();
+  assert.equal(waiting.configs.at(-1).bufferUntilIdentity, true);
+  waiting.switchAccount('other_account');
+  assert.equal(waiting.configs.at(-1).bufferUntilIdentity, false);
+  const paused = environment({ enabled: false, account: null }); await settle();
+  assert.equal(paused.configs.at(-1).bufferUntilIdentity, false);
+});

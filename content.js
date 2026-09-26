@@ -1,12 +1,19 @@
 (() => {
   let config = { username: '', enabled: true }, configLoaded = false;
   let pending = false, lastSignature = '', lastRun = 0, stopped = false, lastHeartbeat = 0;
-  let detectedUsername = null, observerReady = false, observerTimedOut = false, handshakeTimer = null, transportError = '';
+  let detectedUsername = null, observerReady = false, observerTimedOut = false, handshakeTimer = null, transportError = '', observerTransport = null;
   let publishedConfig = '';
   let collection = null, analyticsRetryTimer = null, analyticsRetries = 0;
   const ANALYTICS_RETRY_MS = 2000, ANALYTICS_RETRY_LIMIT = 3;
   const inFlight = new Set();
   let hud = null, summary = null;
+  const publishConfirmation = globalThis.XFocusPublishConfirmation?.mount({ document,
+    username: () => observerConfig().enabled ? config.username : '',
+    onConfirmed: async post => {
+      if (!observerConfig().enabled) throw new Error('Capture unavailable');
+      await send({ type: 'capture', username: config.username, posts: [post] });
+    }
+  });
   function connection() {
     const params = { active: detectedUsername || '', bound: config.username || '' };
     if (stopped) return { status: 'error', code: 'stopped', params, message: '扩展已更新，请刷新 X 页面' };
@@ -18,6 +25,7 @@
     if (!observerReady) return observerTimedOut
       ? { status: 'error', code: 'handshake-timeout', params, message: '自动记录未连接，请刷新 X 页面' }
       : { status: 'connecting', code: 'handshake', params, message: '正在连接页面自动记录' };
+    if (observerTransport && (!observerTransport.fetch || !observerTransport.xhr)) return { status: 'degraded', code: 'observer-detached', params, message: '实时监听可能被页面替换，可检查本页补采；刷新 X 后重试' };
     return { status: 'ready', code: 'ready', params, message: '自动记录已连接，等待本页活动' };
   }
   function showConnection() { hud?.setConnection?.(connection()); }
@@ -51,7 +59,8 @@
   }
   function observerConfig() {
     // A second signed-in account must never write into the bound account's log.
-    return { username: config.username, enabled: !stopped && configLoaded && config.enabled && detectedUsername === config.username && !!config.username, startedAt: config.startedAt };
+    return { username: config.username, enabled: !stopped && configLoaded && config.enabled && detectedUsername === config.username && !!config.username,
+      bufferUntilIdentity: !stopped && (!configLoaded || (config.enabled && (!detectedUsername || !config.username))), startedAt: config.startedAt };
   }
   function publishConfig(force = false) {
     const next = JSON.stringify(observerConfig());
@@ -72,6 +81,7 @@
     configLoaded = true;
     readIdentity();
     publishConfig(true);
+    publishConfirmation?.scan();
   }
   async function send(message) {
     let response;
@@ -102,6 +112,7 @@
       if (packet.username === expected.username && packet.enabled === expected.enabled) {
         observerReady = true;
         observerTimedOut = false;
+        observerTransport = packet.transport && typeof packet.transport.fetch === 'boolean' && typeof packet.transport.xhr === 'boolean' ? packet.transport : null;
         if (handshakeTimer !== null) clearTimeout(handshakeTimer);
         showConnection();
       }
@@ -163,6 +174,7 @@
   function schedule(renewRetries = false) {
     if (stopped) return;
     if (readIdentity()) publishConfig();
+    publishConfirmation?.scan();
     if (renewRetries) clearAnalyticsRetry();
     if (document.visibilityState !== 'visible') return;
     if (pending) return;

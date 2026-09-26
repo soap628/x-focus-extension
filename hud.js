@@ -27,7 +27,7 @@
     const chestUrl = globalThis.chrome?.runtime?.getURL ? globalThis.chrome.runtime.getURL('assets/treasure-chest-v1.png') : 'assets/treasure-chest-v1.png';
     shadow.innerHTML = [
       '<style>' + css + '</style><aside class="hud" data-i18n-aria="hud"><div class="card" hidden>',
-      '<div class="heading" tabindex="0" data-i18n-aria="dragHint"><span class="brand-mark">' + emblem + '</span><b data-i18n="title"></b><div class="controls"><button class="icon settings-toggle" data-i18n-aria="settings" aria-expanded="false">' + gear + '</button><button class="icon minimize" data-i18n-aria="collapse"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8h10"/></svg></button></div></div>',
+      '<div class="heading" tabindex="0" data-i18n-aria="dragHint"><span class="brand-mark">' + emblem + '</span><b data-i18n="title"></b><div class="controls"><button class="capture-indicator" type="button" data-i18n-aria="statusButton"><span class="live"></span></button><button class="icon settings-toggle" data-i18n-aria="settings" aria-expanded="false">' + gear + '</button><button class="icon minimize" data-i18n-aria="collapse"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8h10"/></svg></button></div></div>',
       '<div class="hero">' + crest + '<div class="identity"><div class="hero-line"><span class="name"></span><span class="verified-badge" data-i18n-aria="verified" hidden>✓</span></div><div class="rank"></div><button class="level-row assessment-toggle" data-i18n-aria="assessmentButton" aria-expanded="false"><span class="level">LV. 01</span><span class="rank-stars" aria-hidden="true">✧</span><span class="level-detail" data-i18n="details"></span></button></div><span class="hero-spark" aria-hidden="true">✧</span></div>',
       '<div class="xp-row"><span data-i18n="growth"></span><div class="track" role="progressbar" data-i18n-aria="growthProgress" aria-valuemin="0" aria-valuemax="100"><div class="fill"></div></div><span class="xp-num"></span></div>',
       '<section class="assessment-panel" hidden><div class="assessment-heading"><h3 data-i18n="actionGrowth"></h3><span class="assessment-score"></span></div><p class="assessment-coverage"></p><div class="dimensions"></div><p class="assessment-xp"></p><details class="score-rules"><summary data-i18n="scoringRules"></summary><p data-i18n="rule1"></p><p data-i18n="rule2"></p><p data-i18n="rule3"></p></details></section>',
@@ -59,7 +59,7 @@
     const t = (key, params) => globalThis.XFocusI18n.t(lang(), key, params);
     const compactNumber = n => Math.abs(n) < 10000 ? n.toLocaleString('en-US') : Math.abs(n) < 1e6 ? (n / 1000).toFixed(1).replace(/\.0$/, '') + 'k' : (n / 1e6).toFixed(1).replace(/\.0$/, '') + 'm';
     const approximate = value => value.approximate ? '≈' : '';
-    const sourceCodes = new Set(['stopped', 'transport', 'config', 'paused', 'mismatch', 'identity', 'handshake-timeout', 'handshake', 'ready', 'demo']);
+    const sourceCodes = new Set(['stopped', 'transport', 'config', 'paused', 'mismatch', 'identity', 'handshake-timeout', 'handshake', 'observer-detached', 'ready', 'demo']);
     function translatedError(error) {
       if (sourceCodes.has(error?.code) && !['config', 'handshake', 'ready', 'demo'].includes(error.code)) return t('conn_' + error.code, connection.params);
       return lang() === 'zh-CN' && error?.message ? error.message : t('failed');
@@ -137,17 +137,21 @@
       const statusKey = 'status_' + status;
       $('.status').textContent = t(statusKey) === statusKey ? t('status_connecting') : t(statusKey);
       $('.connection-toggle').className = 'connection-toggle ' + (status === 'error' ? 'error-state' : status);
-      const fallbackCodes = { connecting: 'config', ready: 'ready', 'waiting-account': 'identity', 'account-mismatch': 'mismatch', paused: 'paused', error: 'stopped', demo: 'demo' };
+      const fallbackCodes = { connecting: 'config', ready: 'ready', degraded: 'observer-detached', 'waiting-account': 'identity', 'account-mismatch': 'mismatch', paused: 'paused', error: 'stopped', demo: 'demo' };
       const code = sourceCodes.has(connection.code) ? connection.code : fallbackCodes[status] || 'config';
       const message = lang() === 'zh-CN' && !connection.code && connection.message ? connection.message : t('conn_' + code, connection.params);
       $('.connection-toggle').title = message; $('.connection-message').textContent = message;
+      $('.capture-indicator').className = 'capture-indicator ' + (status === 'error' ? 'error-state' : status);
+      $('.capture-indicator').title = message;
+      $('.capture-indicator').setAttribute('aria-label', t('statusButton') + ': ' + message);
       $('.connection-account').textContent = model?.username ? '@' + model.username : t('awaiting');
-      const time = model?.tracking?.lastNetworkAt;
+      const time = model?.tracking?.lastPublishAt;
       $('.connection-time').textContent = time && Number.isFinite(Date.parse(time)) ? new Intl.DateTimeFormat(lang(), { timeZone: 'Asia/Shanghai', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }).format(new Date(time)) : t('neverReceived');
       $('.connection-actions').textContent = t('autoActions', { posts: model?.auto?.posts || 0, replies: model?.auto?.replies || 0 });
       $('.connection-verified').textContent = t(model?.blueVerified ? (model.blueVerified.value ? 'isVerified' : 'notVerified') : 'unknownVerified');
       $('.scan-now').textContent = t(scanBusy ? 'scanning' : 'scan');
-      $('.scan-now').disabled = scanBusy || !model?.enabled || ['paused', 'account-mismatch', 'waiting-account', 'error', 'connecting'].includes(status);
+      const pageFallback = ['handshake-timeout', 'observer-detached'].includes(code);
+      $('.scan-now').disabled = scanBusy || !model?.enabled || (!pageFallback && ['paused', 'account-mismatch', 'waiting-account', 'error', 'connecting'].includes(status));
       $('.scan-now').setAttribute('aria-busy', String(scanBusy));
     }
     function setConnection(next) { connection = next || { status: 'connecting', code: 'config' }; renderConnection(); }
@@ -322,6 +326,7 @@
     function closePanels() { for (const [name] of panelPairs) panel(name, false); }
     for (const [name, button] of panelPairs) $('.' + button).addEventListener('click', () => panel(name, $('.' + name).hidden));
     const toggleMode = () => savePreferences({ mode: preferences().mode === 'mini' ? 'full' : 'mini' });
+    $('.capture-indicator').addEventListener('click', async () => { if (preferences().mode === 'mini') await savePreferences({ mode: 'full' }); if (!destroyed) panel('connection-panel', true); });
     $('.minimize').addEventListener('click', toggleMode);
     $('.orb').addEventListener('click', () => savePreferences({ mode: 'full' }));
     $('.dock-left').addEventListener('click', () => { const position = positionAt(renderedLayout.left, renderedLayout.top); void savePreferences({ position: { ...position, anchor: 'left', x: 0 } }); });

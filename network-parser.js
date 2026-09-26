@@ -1,7 +1,13 @@
 // Shared by the MAIN-world observer and fixture tests. Only public own-account
 // fields leave this parser; request bodies, headers and credentials are not read.
 (() => {
-  const operations = new Set(['CreateTweet', 'CreateNoteTweet', 'CreateNoteTweetV2', 'UserByScreenName', 'UserByRestId', 'UserTweets', 'UserTweetsAndReplies', 'UserMedia', 'TweetDetail', 'HomeTimeline', 'HomeLatestTimeline']);
+  const publishRoots = {
+    CreateTweet: ['create_tweet'],
+    // X's long-post mutation uses notetweet_create, not the operation's snake case.
+    CreateNoteTweet: ['notetweet_create', 'create_note_tweet'],
+    CreateNoteTweetV2: ['notetweet_create', 'create_note_tweet_v2', 'create_note_tweet']
+  };
+  const operations = new Set([...Object.keys(publishRoots), 'UserByScreenName', 'UserByRestId', 'UserTweets', 'UserTweetsAndReplies', 'UserMedia', 'TweetDetail', 'TweetResultByRestId', 'HomeTimeline', 'HomeLatestTimeline']);
   function operation(url) {
     try {
       const u = new URL(url, 'https://x.com');
@@ -42,15 +48,14 @@
       if (profile.followers !== null) result.followers = { value: profile.followers, approximate: false };
       if (typeof profile.blueVerified === 'boolean') result.blueVerified = profile.blueVerified;
     }
-    const publish = /^Create(?:Note)?Tweet/.test(op);
+    const roots = publishRoots[op];
     // Accept a publish only at its mutation result, never a nested quoted post.
-    if (publish) {
+    if (roots) {
       if (Array.isArray(payload.errors) && payload.errors.length) return result;
-      const roots = ['create_tweet', 'create_note_tweet', 'create_note_tweet_v2'];
       for (const root of roots) {
         const raw = payload.data?.[root]?.tweet_results?.result;
         const item = tweet(raw);
-        if (item?.username === owner && !item.edited) { found.set(item.id, item); result.createdIds.push(item.id); }
+        if (item?.username === owner && !item.edited && !found.has(item.id)) { found.set(item.id, item); result.createdIds.push(item.id); }
         const profile = user(unwrap(raw)?.core?.user_results?.result);
         observeProfile(profile);
       }
@@ -71,5 +76,20 @@
     result.posts = [...found.values()].slice(0, 200);
     return result;
   }
-  globalThis.XFocusNetwork = { operation, parse };
+  function parsePublished(payload, op) {
+    const roots = operations.has(op) ? publishRoots[op] : null;
+    if (!roots || !payload || typeof payload !== 'object' || (Array.isArray(payload.errors) && payload.errors.length)) return null;
+    let owner = null;
+    // The observer may receive a successful publish before account detection has
+    // completed. Return only a sanitized candidate from the mutation itself;
+    // the observer must still match its author to the configured account.
+    for (const root of roots) {
+      const item = tweet(payload.data?.[root]?.tweet_results?.result);
+      if (!item || item.edited) continue;
+      if (owner && owner !== item.username) return null;
+      owner = item.username;
+    }
+    return owner ? parse(payload, op, owner) : null;
+  }
+  globalThis.XFocusNetwork = { operation, parse, parsePublished };
 })();

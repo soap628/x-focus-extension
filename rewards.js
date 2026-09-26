@@ -63,14 +63,14 @@ export function settleRewards(before, after, action, now = new Date()) {
     if (rewards.earned.length < MAX_REWARDS && !rewards.earned.some(saved => saved.id === event.id)) rewards.earned.push({ ...event, openedAt: null, itemId: null });
   };
   // Only local recorded actions earn EXP; Analytics and followers never do.
-  const scoreAction = ['network', 'daily', 'adjust'].includes(action.type);
+  const scoreAction = ['network', 'capture', 'daily', 'adjust'].includes(action.type);
   if (scoreAction && level > assessAccount(previous, now).level) {
     for (let milestone = (Math.floor(rewards.levelHighWater / 5) + 1) * 5; milestone <= level && rewards.earned.length < MAX_REWARDS; milestone += 5) add({ id: `level:${milestone}`, reason: 'level', date, level: milestone });
     rewards.levelHighWater = Math.max(rewards.levelHighWater, level);
   }
   const priorDay = before.days[date], currentDay = next.days[date];
   const newAutomaticAction = ['posts', 'replies'].some(key => (currentDay?.auto?.[key] || 0) > (priorDay?.auto?.[key] || 0));
-  if (action.type === 'network' && next.tracking.enabled && newAutomaticAction && !autoComplete(priorDay) && autoComplete(currentDay)) add({ id: `daily:${date}`, reason: 'daily', date });
+  if (['network', 'capture'].includes(action.type) && next.tracking.enabled && newAutomaticAction && !autoComplete(priorDay) && autoComplete(currentDay)) add({ id: `daily:${date}`, reason: 'daily', date });
   return { ...next, rewards };
 }
 

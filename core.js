@@ -150,8 +150,9 @@ export function reduce(state, action, now = new Date()) {
     day.note = action.note;
   } else if (action.type === 'capture' || action.type === 'network') {
     if (!next.settings.username || action.username?.toLowerCase() !== next.settings.username) throw new Error('页面账号与绑定账号不一致');
-    if (action.type === 'network' && !next.tracking.enabled) return next;
+    if (!next.tracking.enabled) return next;
     if (action.type === 'network') next.tracking.lastNetworkAt = now.toISOString();
+    else next.tracking.lastPageAt = now.toISOString();
     let captured = false;
     if (action.followers && integer(action.followers.value)) {
       const day = ensureDay(next, today);
@@ -197,9 +198,12 @@ export function reduce(state, action, now = new Date()) {
       captured = true;
     }
     if (Array.isArray(action.posts)) for (const post of action.posts.slice(0, 200)) {
-      if (!/^\d{1,30}$/.test(post.id) || !(integer(post.views) || post.views === null) || typeof post.text !== 'string' || !Number.isFinite(Date.parse(post.createdAt)) || Date.parse(post.createdAt) > now.getTime() + 60000) continue;
+      if (!post || !/^\d{1,30}$/.test(post.id) || !(integer(post.views) || post.views === null) || typeof post.text !== 'string' || !Number.isFinite(Date.parse(post.createdAt)) || Date.parse(post.createdAt) > now.getTime() + 60000) continue;
       const date = dayKey(new Date(post.createdAt), next.settings.timeZone);
-      if (action.type === 'network' && !post.edited && ['posts', 'replies'].includes(post.kind) && Date.parse(post.createdAt) >= Date.parse(next.tracking.startedAt) && date <= today && !Object.values(next.days).some(d => d.loggedPostIds.includes(post.id))) {
+      // Network results and unambiguous own-page posts share the same ledger.
+      // Missing views are normal immediately after publishing; an unknown kind
+      // remains a metric-only sample, never an assumed original post.
+      if (!post.edited && ['posts', 'replies'].includes(post.kind) && Date.parse(post.createdAt) >= Date.parse(next.tracking.startedAt) && date <= today && !Object.values(next.days).some(d => d.loggedPostIds.includes(post.id))) {
         const day = ensureDay(next, date);
         if (day.loggedPostIds.length < 20000) { day[post.kind] = Math.min(10000, day[post.kind] + 1); day.auto[post.kind]++; day.loggedPostIds.push(post.id); next.tracking.lastPublishAt = now.toISOString(); }
       }

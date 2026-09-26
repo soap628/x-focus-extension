@@ -19,7 +19,7 @@ test('collects only own outer posts and leaves missing view counts unknown', () 
   const quote = '<div><a href="/soap628/status/333"><time datetime="2026-09-26T01:00:00Z"></time></a><a href="/soap628/status/333/analytics">123 Views</a></div>';
   const { document } = parseHTML(`<main>${post('soap628', '111', '1.5K')}${post('someone', '222', '999', quote)}${post('soap628', '444', 'Views')}${post('soap628', '555', '0')}</main>`);
   const result = scan(document, 'soap628', '/home');
-  assert.equal(result.posts.length, 2); assert.equal(result.posts[0].id, '111'); assert.equal(result.posts[0].views, 1500); assert.equal(result.posts[0].approximate, true); assert.equal(result.posts[1].views, 0);
+  assert.equal(result.posts.length, 3); assert.equal(result.posts[0].id, '111'); assert.equal(result.posts[0].views, 1500); assert.equal(result.posts[0].approximate, true); assert.equal(result.posts[1].id, '444'); assert.equal(result.posts[1].views, null); assert.equal(result.posts[2].id, '555'); assert.equal(result.posts[2].views, 0);
 });
 test('follower links inside a post cannot contaminate the profile total', () => {
   const { document } = parseHTML('<main><article><a href="/soap628/followers">9999 Followers</a></article></main>');
