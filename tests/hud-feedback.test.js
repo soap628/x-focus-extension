@@ -13,6 +13,7 @@ function setup({ posts = 0, replies = 0 } = {}) {
   const context = vm.createContext({ document, window, MutationObserver: class { observe() {} disconnect() {} }, requestAnimationFrame: f => f(), setInterval: () => 0, clearInterval() {}, setTimeout: f => timeouts.push(f), clearTimeout() {} });
   vm.runInContext(source, context);
   let state = reduce(newState(), { type: 'settings', username: 'soap628', posts: 2, replies: 10 }, now);
+  state.hudPreferences.mode = 'full';
   Object.assign(state.days['2026-09-26'], { posts, replies });
   const hud = context.XFocusHUD.mount({ getBounds: () => ({ left: 410, right: 1510 }) });
   const root = document.querySelector('#x-focus-hud').shadowRoot;

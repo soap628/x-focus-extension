@@ -6,7 +6,11 @@ import { parseHTML } from 'linkedom';
 import { newState, reduce, ensureDay } from '../core.js';
 import { hudSummary, hudAction } from '../hud-state.js';
 const now = new Date('2026-09-26T12:00:00Z');
-const setup = () => reduce(newState(), { type: 'settings', username: 'soap628', posts: 2, replies: 10 }, now);
+const setup = () => {
+  const state = reduce(newState(), { type: 'settings', username: 'soap628', posts: 2, replies: 10 }, now);
+  state.hudPreferences.mode = 'full';
+  return state;
+};
 const source = ['i18n.js', 'relic-icons.js', 'hud-theme.js', 'hud.js'].map(name => fs.readFileSync(new URL(`../${name}`, import.meta.url), 'utf8')).join('\n');
 
 test('HUD summary excludes private notes, post bodies and IDs', () => {

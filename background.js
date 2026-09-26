@@ -28,7 +28,7 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
       const original = data[STORAGE_KEY] || newState();
       const now = new Date();
       const state = initializeRewards(upgradeState(original, now), now);
-      if (!original.tracking?.startedAt || original.version !== 2 || !original.account || !Object.hasOwn(original, 'analyticsSummary') || original.rewards?.levelSystem !== 'action-v1' || !original.settings.language || Object.values(original.days).some(day => !Object.hasOwn(day, 'verifiedFollowers'))) await chrome.storage.local.set({ [STORAGE_KEY]: state });
+      if (!original.tracking?.startedAt || original.version !== 2 || !original.account || !Object.hasOwn(original, 'analyticsSummary') || original.rewards?.levelSystem !== 'action-v1' || !original.settings.language || original.hudPreferences === undefined || Object.values(original.days).some(day => !Object.hasOwn(day, 'verifiedFollowers'))) await chrome.storage.local.set({ [STORAGE_KEY]: state });
       if (message.type === 'get') { respond({ ok: true, state }); return; }
       if (['config', 'hud'].includes(message.type)) { respond({ ok: true, config: config(state), hud: hudSummary(state) }); return; }
       const action = message.type === 'hud-command' ? hudAction(message, state) : message;

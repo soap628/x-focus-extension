@@ -2,11 +2,12 @@ export const STORAGE_KEY = 'xFocusV1';
 export const DEFAULTS = { username: '', posts: 2, replies: 10, timeZone: 'Asia/Shanghai', language: 'zh-CN' };
 export const REWARD_ITEM_IDS = ['quill', 'compass', 'key', 'ring', 'gem', 'scroll', 'chalice', 'blade', 'feather', 'lantern', 'crown', 'seal'];
 export const MAX_REWARDS = 5010;
-export function newState() { return { version: 2, settings: { ...DEFAULTS }, days: {}, posts: {}, account: { blueVerified: null }, analyticsSummary: null, rewards: null, lastCapture: null, tracking: { enabled: true, startedAt: null, lastNetworkAt: null, lastPublishAt: null, lastPageAt: null } }; }
+export function newState() { return { version: 2, settings: { ...DEFAULTS }, hudPreferences: { mode: 'mini', position: null }, days: {}, posts: {}, account: { blueVerified: null }, analyticsSummary: null, rewards: null, lastCapture: null, tracking: { enabled: true, startedAt: null, lastNetworkAt: null, lastPublishAt: null, lastPageAt: null } }; }
 export function upgradeState(input, now = new Date()) {
   const state = structuredClone(input);
   state.version = 2;
   state.settings = { ...DEFAULTS, ...state.settings };
+  state.hudPreferences = validateHudPreferences(state.hudPreferences);
   state.tracking = { ...newState().tracking, ...state.tracking };
   state.tracking.startedAt ||= now.toISOString();
   state.account = { blueVerified: null, ...state.account };
@@ -30,6 +31,28 @@ export function validDay(value) {
   return typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value) && !Number.isNaN(Date.parse(value)) && new Date(value).toISOString().slice(0, 10) === value;
 }
 export function integer(value, max = 1e12) { return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 && value <= max; }
+export function validateHudPreferences(input, partial = false) {
+  if (input === undefined && !partial) input = { mode: 'mini', position: null };
+  const record = value => value !== null && typeof value === 'object' && !Array.isArray(value);
+  if (!record(input) || Reflect.ownKeys(input).some(key => !['mode', 'position'].includes(key))) throw new Error('任务卡布局设置无效');
+  const hasMode = Object.hasOwn(input, 'mode'), hasPosition = Object.hasOwn(input, 'position');
+  if (partial ? !hasMode && !hasPosition : !hasMode || !hasPosition) throw new Error('任务卡布局设置不完整');
+  const clean = {};
+  if (hasMode) {
+    if (!['mini', 'full'].includes(input.mode)) throw new Error('任务卡显示模式无效');
+    clean.mode = input.mode;
+  }
+  if (hasPosition) {
+    if (input.position === null) clean.position = null;
+    else {
+      const position = input.position;
+      const coordinate = value => typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= 1;
+      if (!record(position) || Reflect.ownKeys(position).some(key => !['anchor', 'x', 'y'].includes(key)) || !['anchor', 'x', 'y'].every(key => Object.hasOwn(position, key)) || !['left', 'right', 'free'].includes(position.anchor) || !coordinate(position.x) || !coordinate(position.y)) throw new Error('任务卡位置无效');
+      clean.position = { anchor: position.anchor, x: position.x, y: position.y };
+    }
+  }
+  return clean;
+}
 export function ensureDay(state, date) {
   if (!validDay(date)) throw new Error('日期格式不正确');
   state.days[date] ??= { posts: 0, replies: 0, goals: { posts: state.settings.posts, replies: state.settings.replies }, followers: null, verifiedFollowers: null, impressions: null, note: '', loggedPostIds: [], auto: { posts: 0, replies: 0 }, trackedViews: null, trackedIds: [] };
@@ -83,7 +106,9 @@ function sameAnalyticsPeriod(previous, period, now) {
 export function reduce(state, action, now = new Date()) {
   const next = upgradeState(state, now);
   const today = dayKey(now, state.settings.timeZone);
-  if (action.type === 'language') {
+  if (action.type === 'hud-preferences') {
+    next.hudPreferences = { ...next.hudPreferences, ...validateHudPreferences(action.preferences, true) };
+  } else if (action.type === 'language') {
     if (!['zh-CN', 'en'].includes(action.language)) throw new Error('不支持的界面语言');
     next.settings.language = action.language;
   } else if (action.type === 'tracking') {
@@ -210,6 +235,7 @@ export function validateBackup(input) {
   if (typeof s.username !== 'string' || (s.username && !/^[a-z0-9_]{1,15}$/.test(s.username)) || !integer(s.posts, 1000) || !integer(s.replies, 1000) || s.timeZone !== 'Asia/Shanghai' || (s.language !== undefined && !['zh-CN', 'en'].includes(s.language))) throw new Error('备份设置无效');
   if (Array.isArray(input.days) || Array.isArray(input.posts) || Object.keys(input.days).length > 5000 || Object.keys(input.posts).length > 1000) throw new Error('备份数据量或格式不正确');
   const clean = newState(); clean.settings = { username: s.username, posts: s.posts, replies: s.replies, timeZone: s.timeZone, language: s.language ?? 'zh-CN' };
+  clean.hudPreferences = validateHudPreferences(input.hudPreferences);
   const cleanMetric = m => {
     if (m === null) return null;
     if (!m || !integer(m.value) || !['manual', 'page', 'network', 'analytics'].includes(m.source) || typeof m.at !== 'string' || !Number.isFinite(Date.parse(m.at)) || typeof m.approximate !== 'boolean') throw new Error('备份指标无效');

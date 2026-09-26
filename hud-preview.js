@@ -9,6 +9,10 @@ function demoState() {
   state = reduce(state, { type: 'capture', username: 'soap628', posts: [], verifiedFollowers: { value: 2200, approximate: true }, blueVerified: true, analyticsSummary: { period: { label: '2W', days: 14, start: null, end: null }, impressions: { value: 98000, approximate: true }, engagements: { value: 3200, approximate: true } } }, now);
   state.days[today].auto = { posts: 1, replies: 6 };
   state = initializeRewards(state, now);
+  try {
+    const preferences = JSON.parse(localStorage.getItem('xFocusPreviewHudPreferences') || 'null');
+    if (preferences) state = reduce(state, { type: 'hud-preferences', preferences }, now);
+  } catch { /* An old or invalid preview preference falls back to the default. */ }
   // Start with no chests; simulated new actions unlock the real daily reward.
   return state;
 }
@@ -16,7 +20,10 @@ let state = demoState();
 function apply(action) { const now = new Date(); state = settleRewards(state, reduce(state, action, now), action, now); }
 const hud = XFocusHUD.mount({ onCommand: async action => {
   if (action.command === 'open-chest') state = openChest(state);
-  else if (action.command !== 'scan-now') apply(hudAction(action, state));
+  else if (action.command !== 'scan-now') {
+    apply(hudAction(action, state));
+    if (action.command === 'hud-preferences') localStorage.setItem('xFocusPreviewHudPreferences', JSON.stringify(state.hudPreferences));
+  }
   return hudSummary(state);
 } });
 hud.setConnection({ status: 'demo', code: 'demo', message: '这里是界面演示，使用示例数据，未连接真实 X。安装后会显示当前页面的实际连接状态。' });
@@ -25,5 +32,5 @@ let demoSequence = 0;
 function simulate(kind) { const now = new Date(); apply({ type: 'network', username: state.settings.username, posts: [{ id: `${now.getTime()}${++demoSequence}`, kind, text: 'Offline sample action', views: 0, approximate: false, createdAt: now.toISOString() }] }); render(); }
 document.querySelector('#demo-post').addEventListener('click', () => simulate('posts'));
 document.querySelector('#demo-reply').addEventListener('click', () => simulate('replies'));
-document.querySelector('#demo-reset').addEventListener('click', () => { state = demoState(); render(); });
+document.querySelector('#demo-reset').addEventListener('click', () => { localStorage.removeItem('xFocusPreviewHudPreferences'); state = demoState(); render(); });
 render();

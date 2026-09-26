@@ -15,6 +15,7 @@ function setup() {
   const context = vm.createContext({ document, window, MutationObserver: class { observe() {} disconnect() {} }, requestAnimationFrame: f => f(), setInterval: () => 0, clearInterval() {}, setTimeout: () => 0, clearTimeout() {} });
   vm.runInContext(source, context);
   let state = reduce(newState(), { type: 'settings', username: 'soap628', posts: 2, replies: 10 }, now);
+  state.hudPreferences.mode = 'full';
   state = reduce(state, { type: 'capture', username: 'soap628', posts: [], blueVerified: true, verifiedFollowers: { value: 2200, approximate: true }, analyticsSummary: { period: { label: '2W', days: 14, start: null, end: null }, impressions: { value: 98000, approximate: true }, engagements: { value: 3200, approximate: true } } }, now);
   state = initializeRewards(state, now);
   state.rewards.earned = [{ id: 'level:5', reason: 'level', level: 5, date: '2026-09-26', openedAt: null, itemId: null }];

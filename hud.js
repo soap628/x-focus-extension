@@ -1,5 +1,17 @@
 (() => {
-  const WIDTH = 232, GAP = 16;
+  const WIDTH = 232, MINI_WIDTH = 184, GAP = 16, EDGE = 4, SNAP = 24;
+  const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
+  function resolveLayout({ viewportWidth, viewportHeight, width, height, position, bounds }) {
+    const vw = Math.max(1, viewportWidth || 1), vh = Math.max(1, viewportHeight || 1);
+    const edge = Math.min(EDGE, vw / 2, vh / 2);
+    width = Math.max(1, Math.min(width, vw - edge * 2));
+    height = Math.max(1, Math.min(height, vh - edge * 2));
+    const rangeX = Math.max(0, vw - width - edge * 2), rangeY = Math.max(0, vh - height - edge * 2);
+    const anchor = position?.anchor || (bounds && vw - bounds.right < width + GAP && bounds.left >= width + GAP ? 'left' : 'right');
+    const left = anchor === 'left' ? edge : anchor === 'right' ? edge + rangeX : edge + clamp(position?.x || 0, 0, 1) * rangeX;
+    const top = position ? edge + clamp(position.y || 0, 0, 1) * rangeY : clamp(108, edge, edge + rangeY);
+    return { left, top, anchor, width, height };
+  }
   function placement(viewport, bounds) {
     if (!bounds || viewport < WIDTH + GAP * 2) return { mode: 'compact', left: Math.max(8, viewport - 64) };
     const right = viewport - bounds.right;
@@ -15,7 +27,7 @@
     const chestUrl = globalThis.chrome?.runtime?.getURL ? globalThis.chrome.runtime.getURL('assets/treasure-chest-v1.png') : 'assets/treasure-chest-v1.png';
     shadow.innerHTML = [
       '<style>' + css + '</style><aside class="hud" data-i18n-aria="hud"><div class="card" hidden>',
-      '<div class="heading"><span class="brand-mark">' + emblem + '</span><b data-i18n="title"></b><div class="controls"><button class="icon settings-toggle" data-i18n-aria="settings" aria-expanded="false">' + gear + '</button><button class="icon minimize" data-i18n-aria="collapse"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8h10"/></svg></button></div></div>',
+      '<div class="heading" tabindex="0" data-i18n-aria="dragHint"><span class="brand-mark">' + emblem + '</span><b data-i18n="title"></b><div class="controls"><button class="icon settings-toggle" data-i18n-aria="settings" aria-expanded="false">' + gear + '</button><button class="icon minimize" data-i18n-aria="collapse"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8h10"/></svg></button></div></div>',
       '<div class="hero">' + crest + '<div class="identity"><div class="hero-line"><span class="name"></span><span class="verified-badge" data-i18n-aria="verified" hidden>✓</span></div><div class="rank"></div><button class="level-row assessment-toggle" data-i18n-aria="assessmentButton" aria-expanded="false"><span class="level">LV. 01</span><span class="rank-stars" aria-hidden="true">✧</span><span class="level-detail" data-i18n="details"></span></button></div><span class="hero-spark" aria-hidden="true">✧</span></div>',
       '<div class="xp-row"><span data-i18n="growth"></span><div class="track" role="progressbar" data-i18n-aria="growthProgress" aria-valuemin="0" aria-valuemax="100"><div class="fill"></div></div><span class="xp-num"></span></div>',
       '<section class="assessment-panel" hidden><div class="assessment-heading"><h3 data-i18n="actionGrowth"></h3><span class="assessment-score"></span></div><p class="assessment-coverage"></p><div class="dimensions"></div><p class="assessment-xp"></p><details class="score-rules"><summary data-i18n="scoringRules"></summary><p data-i18n="rule1"></p><p data-i18n="rule2"></p><p data-i18n="rule3"></p></details></section>',
@@ -30,6 +42,7 @@
       '<section class="connection-panel" hidden><h3 data-i18n="statusButton"></h3><p class="connection-message"></p><dl><dt data-i18n="boundAccount"></dt><dd class="connection-account"></dd><dt data-i18n="latestData"></dt><dd class="connection-time"></dd><dt data-i18n="detectedToday"></dt><dd class="connection-actions"></dd><dt data-i18n="ownBlue"></dt><dd class="connection-verified"></dd></dl><button class="scan-now save" type="button" data-i18n="scan"></button><p class="help" data-i18n="captureHelp"></p></section>',
       '<section class="settings" hidden><h3 data-i18n="dailySettings"></h3><form><div class="fields"><label><span data-i18n="postGoal"></span><input name="posts" type="number" min="0" max="1000" step="1" required></label><label><span data-i18n="replyGoal"></span><input name="replies" type="number" min="0" max="1000" step="1" required></label></div><button class="save" type="submit" data-i18n="save"></button></form>',
       '<label class="language-field"><span data-i18n="language"></span><select class="language-select" data-i18n-aria="language"><option value="zh-CN">简体中文</option><option value="en">English</option></select></label>',
+      '<div class="panel-position"><span data-i18n="panelPosition"></span><div class="position-controls"><button class="dock-left" type="button" data-i18n="dockLeft"></button><button class="dock-right" type="button" data-i18n="dockRight"></button><button class="position-auto" type="button" data-i18n="autoPosition"></button></div><p class="layout-help" data-i18n="layoutHelp"></p></div>',
       '<div class="correct"><span data-i18n="correctPosts"></span><button data-kind="posts" data-amount="-1" data-i18n-aria="postsMinus">−</button><button data-kind="posts" data-amount="1" data-i18n-aria="postsPlus">+</button></div><div class="correct"><span data-i18n="correctReplies"></span><button data-kind="replies" data-amount="-1" data-i18n-aria="repliesMinus">−</button><button data-kind="replies" data-amount="1" data-i18n-aria="repliesPlus">+</button></div>',
       '<div class="settings-links"><a class="profile-link" href="https://x.com/" target="_blank" rel="noopener noreferrer" data-i18n="profileLink"></a><a href="https://x.com/i/account_analytics" target="_blank" rel="noopener noreferrer" data-i18n="analyticsLink"></a></div><button class="text-btn tracking-toggle" type="button"></button><p class="help" data-i18n="settingsHelp"></p></section>',
       '<div class="error" role="alert" hidden></div><div class="toast" role="status" hidden></div><div class="reward-float" role="status" hidden></div></div><button class="orb" data-i18n-aria="expand" hidden><span class="orb-emblem">' + emblem + '</span><span class="orb-level">01</span><span class="orb-loot" hidden></span><i></i></button></aside>'
@@ -37,7 +50,8 @@
     (document.body || document.documentElement).append(host);
     const $ = selector => shadow.querySelector(selector);
     $('.treasure-chest').src = chestUrl;
-    let model, minimized = false, expanded = false, lastPlacement = '', toastTimer, rewardTimer;
+    let model, toastTimer, rewardTimer, drag = null, renderedLayout = null, layoutDraft = null;
+    let preferenceQueue = Promise.resolve(), preferenceRevision = 0, destroyed = false;
     let selectedItem = null, chestBusy = false, scanBusy = false, languageBusy = false;
     let currentError = null, toastKey = null, currentReward = null, inventorySignature = '';
     let connection = { status: 'connecting', code: 'config' };
@@ -66,16 +80,57 @@
       const rects = nodes.filter(Boolean).map(node => node.getBoundingClientRect()).filter(rect => rect.width > 0 && rect.height > 0);
       return rects.length ? { left: Math.min(...rects.map(rect => rect.left)), right: Math.max(...rects.map(rect => rect.right)) } : null;
     }
+    function preferences() { return { mode: 'mini', position: null, ...model?.hudPreferences, ...layoutDraft }; }
+    function viewport() {
+      const width = window.innerWidth || 1920, height = window.innerHeight || 800;
+      return { width: Math.min(width, document.documentElement.clientWidth || width), height: Math.min(height, document.documentElement.clientHeight || height) };
+    }
     function layout() {
-      const pos = placement(window.innerWidth, (getBounds || defaultBounds)());
-      const compact = pos.mode === 'compact' || minimized;
-      $('.hud').classList.toggle('compact', compact);
-      const left = compact ? Math.min(window.innerWidth - 56, Math.max(8, pos.left + (pos.mode === 'compact' ? 0 : WIDTH - 42))) : pos.left;
-      $('.hud').style.left = left + 'px'; $('.hud').style.width = compact ? '42px' : WIDTH + 'px';
-      $('.card').hidden = !model || (compact && !expanded); $('.orb').hidden = !model || !compact;
-      $('.orb').setAttribute('aria-expanded', String(expanded));
-      $('.card').style.right = compact && expanded ? Math.min(0, left + 42 - WIDTH - 8) + 'px' : '';
-      lastPlacement = pos.mode;
+      if (destroyed) return;
+      const prefs = preferences(), mini = prefs.mode === 'mini', hud = $('.hud'), card = $('.card');
+      hud.classList.toggle('mini', mini); hud.classList.remove('compact');
+      card.hidden = !model; $('.orb').hidden = true;
+      const { width: vw, height: vh } = viewport();
+      const width = Math.min(mini ? MINI_WIDTH : WIDTH, Math.max(1, vw - EDGE * 2));
+      hud.style.width = width + 'px'; card.style.width = '100%'; card.style.right = '';
+      card.style.maxHeight = Math.max(1, vh - EDGE * 2) + 'px'; card.style.overflowY = 'auto'; card.style.overflowX = 'hidden';
+      $('.heading b').textContent = t(mini ? 'quests' : 'title');
+      $('.heading').title = t('dragHint');
+      $('.settings-toggle').hidden = mini;
+      $('.minimize').setAttribute('aria-label', t(mini ? 'fullMode' : 'miniMode'));
+      $('.minimize').setAttribute('aria-expanded', String(!mini));
+      $('.minimize').title = t(mini ? 'fullMode' : 'miniMode');
+      $('.minimize path').setAttribute('d', mini ? 'M3 6 8 11 13 6M3 2 8 7 13 2' : 'M3 8h10');
+      const height = card.getBoundingClientRect().height || (mini ? 140 : 620);
+      let pos = resolveLayout({ viewportWidth: vw, viewportHeight: vh, width, height, position: prefs.position, bounds: (getBounds || defaultBounds)() });
+      if (drag?.moved) pos = { ...pos, left: clamp(drag.left, EDGE, Math.max(EDGE, vw - pos.width - EDGE)), top: clamp(drag.top, EDGE, Math.max(EDGE, vh - pos.height - EDGE)), anchor: 'free' };
+      renderedLayout = pos;
+      hud.style.left = pos.left + 'px'; hud.style.top = pos.top + 'px'; hud.style.right = 'auto';
+      hud.classList.toggle('docked-left', pos.anchor === 'left'); hud.classList.toggle('docked-right', pos.anchor === 'right');
+      $('.dock-left').setAttribute('aria-pressed', String(prefs.position?.anchor === 'left'));
+      $('.dock-right').setAttribute('aria-pressed', String(prefs.position?.anchor === 'right'));
+      $('.position-auto').setAttribute('aria-pressed', String(prefs.position === null));
+    }
+    function positionAt(left, top, snap = true) {
+      const size = renderedLayout || { width: MINI_WIDTH, height: 140 };
+      const area = viewport();
+      const rangeX = Math.max(0, area.width - size.width - EDGE * 2), rangeY = Math.max(0, area.height - size.height - EDGE * 2);
+      const x = rangeX ? clamp((left - EDGE) / rangeX, 0, 1) : 0, y = rangeY ? clamp((top - EDGE) / rangeY, 0, 1) : 0;
+      const anchor = snap && left - EDGE <= SNAP ? 'left' : snap && EDGE + rangeX - left <= SNAP ? 'right' : 'free';
+      return { anchor, x: anchor === 'left' ? 0 : anchor === 'right' ? 1 : x, y };
+    }
+    function savePreferences(patch) {
+      if (!model || destroyed) return Promise.resolve();
+      const revision = ++preferenceRevision;
+      layoutDraft = { ...layoutDraft, ...patch };
+      if (patch.mode === 'mini') closePanels();
+      layout();
+      preferenceQueue = preferenceQueue.then(async () => {
+        if (destroyed) return;
+        await command({ command: 'hud-preferences', preferences: patch });
+        if (revision === preferenceRevision) { layoutDraft = null; layout(); }
+      });
+      return preferenceQueue;
     }
     function renderConnection() {
       const status = connection.status || 'connecting';
@@ -187,7 +242,9 @@
       }, 2200);
     }
     function update(next) {
+      if (destroyed) return;
       const previous = model; model = next; translateStatic();
+      if (preferences().mode === 'mini') closePanels();
       $('.name').textContent = next.username || t('adventurer');
       $('.name').title = next.username ? '@' + next.username : t('identityHint');
       $('.verified-badge').hidden = next.blueVerified?.value !== true;
@@ -260,11 +317,57 @@
         }
       }
       if (name === 'settings' && open && model) for (const kind of ['posts', 'replies']) $('input[name="' + kind + '"]').value = model.goals[kind];
+      layout();
     }
     function closePanels() { for (const [name] of panelPairs) panel(name, false); }
     for (const [name, button] of panelPairs) $('.' + button).addEventListener('click', () => panel(name, $('.' + name).hidden));
-    $('.minimize').addEventListener('click', () => { minimized = true; expanded = false; closePanels(); layout(); });
-    $('.orb').addEventListener('click', () => { if (lastPlacement !== 'compact') { minimized = false; expanded = false; } else expanded = !expanded; layout(); });
+    const toggleMode = () => savePreferences({ mode: preferences().mode === 'mini' ? 'full' : 'mini' });
+    $('.minimize').addEventListener('click', toggleMode);
+    $('.orb').addEventListener('click', () => savePreferences({ mode: 'full' }));
+    $('.dock-left').addEventListener('click', () => { const position = positionAt(renderedLayout.left, renderedLayout.top); void savePreferences({ position: { ...position, anchor: 'left', x: 0 } }); });
+    $('.dock-right').addEventListener('click', () => { const position = positionAt(renderedLayout.left, renderedLayout.top); void savePreferences({ position: { ...position, anchor: 'right', x: 1 } }); });
+    $('.position-auto').addEventListener('click', () => savePreferences({ position: null }));
+    const heading = $('.heading');
+    const isControl = target => target?.closest?.('button,a,input,select,textarea');
+    function startDrag(event) {
+      if (!model || destroyed || drag || event.button !== 0 || event.isPrimary === false || isControl(event.target)) return;
+      layout();
+      drag = { id: event.pointerId, startX: event.clientX, startY: event.clientY, originLeft: renderedLayout.left, originTop: renderedLayout.top, left: renderedLayout.left, top: renderedLayout.top, moved: false };
+      try { heading.setPointerCapture?.(event.pointerId); } catch {}
+    }
+    function moveDrag(event) {
+      if (!drag || event.pointerId !== drag.id) return;
+      const dx = event.clientX - drag.startX, dy = event.clientY - drag.startY;
+      if (!drag.moved && Math.hypot(dx, dy) < 4) return;
+      drag.moved = true; drag.left = drag.originLeft + dx; drag.top = drag.originTop + dy;
+      event.preventDefault(); $('.hud').classList.add('dragging'); layout();
+    }
+    function finishDrag(event, save) {
+      if (!drag || (event?.pointerId !== undefined && event.pointerId !== drag.id)) return;
+      const ended = drag, position = positionAt(renderedLayout.left, renderedLayout.top);
+      drag = null; $('.hud').classList.remove('dragging');
+      try { heading.releasePointerCapture?.(ended.id); } catch {}
+      if (save && ended.moved) void savePreferences({ position });
+      else layout();
+    }
+    const endDrag = event => { moveDrag(event); finishDrag(event, true); };
+    const cancelDrag = event => finishDrag(event, false);
+    heading.addEventListener('pointerdown', startDrag);
+    heading.addEventListener('lostpointercapture', cancelDrag);
+    window.addEventListener('pointermove', moveDrag, true);
+    window.addEventListener('pointerup', endDrag, true);
+    window.addEventListener('pointercancel', cancelDrag, true);
+    window.addEventListener('blur', cancelDrag);
+    heading.addEventListener('keydown', event => {
+      if (isControl(event.target) || !['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(event.key)) return;
+      event.preventDefault();
+      const step = event.shiftKey ? 40 : 10;
+      const dx = event.key === 'ArrowLeft' ? -step : event.key === 'ArrowRight' ? step : 0;
+      const dy = event.key === 'ArrowUp' ? -step : event.key === 'ArrowDown' ? step : 0;
+      const position = positionAt(renderedLayout.left + dx, renderedLayout.top + dy, false);
+      if (!dx && preferences().position?.anchor !== 'free') position.anchor = renderedLayout.anchor;
+      void savePreferences({ position });
+    });
     $('form').addEventListener('submit', async event => { event.preventDefault(); await command({ command: 'goals', posts: Number($('input[name="posts"]').value), replies: Number($('input[name="replies"]').value) }, 'saved'); });
     shadow.querySelectorAll('.correct button').forEach(button => button.addEventListener('click', () => { void command({ command: 'adjust', kind: button.dataset.kind, amount: Number(button.dataset.amount) }); }));
     $('.tracking-toggle').addEventListener('click', () => { if (model) void command({ command: 'tracking', enabled: !model.enabled }); });
@@ -287,9 +390,10 @@
     });
     shadow.addEventListener('keydown', event => {
       if (event.key !== 'Escape') return;
+      if (drag) { event.preventDefault(); finishDrag(null, false); return; }
       const current = panelPairs.find(([name]) => !$('.' + name).hidden);
       if (current) { panel(current[0], false); $('.' + current[1]).focus(); }
-      else if (expanded) { expanded = false; layout(); $('.orb').focus(); }
+      else if (preferences().mode === 'full') { void savePreferences({ mode: 'mini' }); $('.minimize').focus(); }
     });
     let resizePending = false;
     function scheduleLayout() { if (resizePending) return; resizePending = true; requestAnimationFrame(() => { resizePending = false; layout(); }); }
@@ -297,7 +401,7 @@
     const observer = new MutationObserver(scheduleLayout); observer.observe(document.body || document.documentElement, { childList: true, subtree: true });
     const interval = setInterval(layout, 2500);
     translateStatic(); renderConnection();
-    return { update, layout, setConnection, toggle() { if (lastPlacement === 'compact') expanded = !expanded; else minimized = !minimized; closePanels(); layout(); }, destroy() { observer.disconnect(); clearInterval(interval); clearTimeout(toastTimer); clearTimeout(rewardTimer); window.removeEventListener('resize', scheduleLayout); host.remove(); } };
+    return { update, layout, setConnection, toggle: toggleMode, destroy() { finishDrag(null, false); destroyed = true; observer.disconnect(); clearInterval(interval); clearTimeout(toastTimer); clearTimeout(rewardTimer); window.removeEventListener('resize', scheduleLayout); window.removeEventListener('pointermove', moveDrag, true); window.removeEventListener('pointerup', endDrag, true); window.removeEventListener('pointercancel', cancelDrag, true); window.removeEventListener('blur', cancelDrag); host.remove(); } };
   }
-  globalThis.XFocusHUD = { mount, placement };
+  globalThis.XFocusHUD = { mount, placement, resolveLayout };
 })();

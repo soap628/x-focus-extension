@@ -1,4 +1,4 @@
-import { dayKey, followerDelta, progress } from './core.js';
+import { dayKey, followerDelta, progress, validateHudPreferences } from './core.js';
 import { actionExperience, assessAccount, latestMetric, accountAnalytics } from './assessment.js';
 import { rewardsSummary } from './rewards.js';
 
@@ -13,7 +13,7 @@ export function hudSummary(state, now = new Date()) {
   const delta = followerDate ? followerDelta(state, followerDate) : null;
   const impressions = today.impressions;
   return {
-    date, username: state.settings.username, enabled: state.tracking.enabled, language: state.settings.language || 'zh-CN', rewards: rewardsSummary(state),
+    date, username: state.settings.username, enabled: state.tracking.enabled, language: state.settings.language || 'zh-CN', rewards: rewardsSummary(state), hudPreferences: validateHudPreferences(state.hudPreferences),
     tracking: { startedAt: state.tracking.startedAt, lastNetworkAt: state.tracking.lastNetworkAt, lastPageAt: state.tracking.lastPageAt, lastPublishAt: state.tracking.lastPublishAt },
     posts: today.posts, replies: today.replies,
     goals: { posts: today.goals.posts, replies: today.goals.replies },
@@ -30,6 +30,7 @@ export function hudSummary(state, now = new Date()) {
 }
 
 export function hudAction(message, state) {
+  if (message.command === 'hud-preferences') return { type: 'hud-preferences', preferences: validateHudPreferences(message.preferences, true) };
   if (message.command === 'language') {
     if (!['zh-CN', 'en'].includes(message.language)) throw new Error('不支持的界面语言');
     return { type: 'language', language: message.language };

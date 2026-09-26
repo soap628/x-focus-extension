@@ -1,6 +1,7 @@
 (() => {
   const messages = {
-    title: ['冒险档案', 'ADVENTURER'], hud: ['X Focus 每日任务', 'X Focus daily quests'], settings: ['任务设置', 'Quest settings'], collapse: ['收起任务卡', 'Collapse quest card'], expand: ['展开 X Focus 每日任务', 'Expand X Focus daily quests'],
+    title: ['冒险档案', 'ADVENTURER'], hud: ['X Focus 每日任务', 'X Focus daily quests'], settings: ['任务设置', 'Quest settings'], collapse: ['仅显示发帖和回复', 'Show posts and replies only'], expand: ['展开 X Focus 每日任务', 'Expand X Focus daily quests'],
+    dragHint: ['拖动移动；方向键微调位置', 'Drag to move; use arrow keys to fine-tune the position'], miniMode: ['仅显示发帖和回复', 'Show posts and replies only'], fullMode: ['展开完整档案', 'Expand full character sheet'], panelPosition: ['面板位置', 'Panel position'], dockLeft: ['贴左边', 'Dock left'], dockRight: ['贴右边', 'Dock right'], autoPosition: ['自动位置', 'Automatic'], positionSaved: ['位置已保存', 'Position saved'], layoutHelp: ['拖动顶部移动面板；靠近左右边缘时自动停靠。位置和显示模式保存在本机。', 'Drag the header to move the panel. It docks near the left or right edge. Position and display mode are saved on this device.'],
     adventurer: ['冒险者', 'Adventurer'], identityHint: ['登录 X 后自动识别账号', 'Your account is detected after signing in to X'], verified: ['X 蓝 V 已认证', 'X blue verified'], readAt: ['{date} 读取', 'Read {date}'],
     rank0: ['启程旅人', 'Wayfarer'], rank1: ['暮光游侠', 'Dusk Ranger'], rank2: ['星辉行者', 'Starstrider'], rank3: ['黎明守望', 'Dawn Warden'],
     rankHint: ['等级称号：Lv.1 启程旅人 · Lv.5 暮光游侠 · Lv.15 星辉行者 · Lv.30 黎明守望', 'Titles: Lv.1 Wayfarer · Lv.5 Dusk Ranger · Lv.15 Starstrider · Lv.30 Dawn Warden'],
