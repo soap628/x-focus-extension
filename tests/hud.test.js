@@ -1,0 +1,105 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import vm from 'node:vm';
+import { parseHTML } from 'linkedom';
+import { newState, reduce, ensureDay } from '../core.js';
+import { hudSummary, hudAction } from '../hud-state.js';
+const now = new Date('2026-09-26T12:00:00Z');
+const setup = () => reduce(newState(), { type: 'settings', username: 'soap628', posts: 2, replies: 10 }, now);
+const source = ['i18n.js', 'relic-icons.js', 'hud-theme.js', 'hud.js'].map(name => fs.readFileSync(new URL(`../${name}`, import.meta.url), 'utf8')).join('\n');
+
+test('HUD summary excludes private notes, post bodies and IDs', () => {
+  const state = setup();
+  state.days['2026-09-26'].note = 'private-note-marker';
+  state.posts['999123456789'] = { text: 'private-post-marker' };
+  const summary = hudSummary(state, now), encoded = JSON.stringify(summary);
+  assert.equal(summary.username, 'soap628');
+  for (const secret of ['private-note-marker', 'private-post-marker', '999123456789', 'loggedPostIds', 'settings']) assert.ok(!encoded.includes(secret));
+});
+test('XP follows recorded actions; changing targets never grants experience', () => {
+  let state = setup();
+  Object.assign(state.days['2026-09-26'], { posts: 4, replies: 6 });
+  const initial = hudSummary(state, now);
+  assert.deepEqual([initial.level, initial.xp, initial.totalXp], [5, 10, 110]);
+  assert.equal(initial.assessment.score, 95);
+  state = reduce(state, hudAction({ command: 'goals', username: 'another', posts: 1, replies: 1 }, state), now);
+  assert.equal(hudSummary(state, now).totalXp, initial.totalXp);
+  assert.equal(state.settings.username, 'soap628');
+});
+test('Beijing midnight resets task bars while preserving XP and dated follower readings', () => {
+  const state = setup();
+  const day = state.days['2026-09-26']; day.posts = 2; day.replies = 10;
+  day.followers = { value: 248, approximate: false }; day.impressions = { value: 1200, approximate: false };
+  const next = hudSummary(state, new Date('2026-09-26T16:00:00Z'));
+  assert.deepEqual([next.date, next.posts, next.replies, next.totalXp], ['2026-09-27', 0, 0, 90]);
+  assert.equal(next.followers.date, '2026-09-26'); assert.equal(next.views, null); assert.equal(next.complete, false);
+});
+test('observed post-view increments are labeled separately from account impressions', () => {
+  const state = setup(), day = state.days['2026-09-26'];
+  day.trackedViews = 34;
+  assert.equal(hudSummary(state, now).views.kind, 'tracked');
+  day.impressions = { value: 800, approximate: true };
+  assert.deepEqual(hudSummary(state, now).views, { value: 800, approximate: true, kind: 'impressions' });
+  day.followers = { value: 248, approximate: false };
+  ensureDay(state, '2026-09-21').followers = { value: 250, approximate: true };
+  assert.deepEqual(hudSummary(state, now).delta, { value: -2, approximate: true, from: '2026-09-21' });
+});
+test('placement uses a free gutter and collapses when neither side can fit', () => {
+  const ctx = vm.createContext({}); vm.runInContext(source, ctx);
+  const place = ctx.XFocusHUD.placement;
+  for (const width of [1280, 1440, 1920, 2552]) {
+    const bounds = { left: (width - 1100) / 2, right: (width + 1100) / 2 }, pos = place(width, bounds);
+    if (pos.mode === 'right') { assert.ok(pos.left >= bounds.right + 16); assert.ok(pos.left + 232 <= width - 16); }
+    else assert.equal(pos.mode, 'compact');
+  }
+  const left = place(1440, { left: 320, right: 1420 });
+  assert.equal(left.mode, 'left'); assert.ok(left.left + 232 < 320);
+  assert.equal(place(390, { left: 0, right: 390 }).mode, 'compact');
+  assert.equal(place(1920, null).mode, 'compact');
+});
+test('HUD mounts once in Shadow DOM, updates bars, and keeps edits scoped to the card', async () => {
+  const { document, window } = parseHTML('<html><body><main><p>X page remains here</p></main></body></html>');
+  window.innerWidth = 1920;
+  const commands = []; let state = setup();
+  const ctx = vm.createContext({ document, window, MutationObserver: class { observe() {} disconnect() {} }, requestAnimationFrame: f => f(), setInterval: () => 0, clearInterval() {}, setTimeout: () => 0, clearTimeout() {} });
+  vm.runInContext(source, ctx);
+  const hud = ctx.XFocusHUD.mount({ getBounds: () => ({ left: 410, right: 1510 }), onCommand: async action => { commands.push(action); state = reduce(state, hudAction(action, state), now); return hudSummary(state, now); } });
+  hud.update(hudSummary(state, now));
+  assert.equal(ctx.XFocusHUD.mount(), null);
+  assert.equal(document.querySelectorAll('style').length, 0, 'styles cannot affect the X page');
+  const root = document.querySelector('#x-focus-hud').shadowRoot;
+  root.querySelector('.settings-toggle').click();
+  root.querySelector('input[name="posts"]').value = '3'; root.querySelector('input[name="replies"]').value = '15';
+  root.querySelector('form').dispatchEvent(new window.Event('submit', { cancelable: true }));
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(state.settings.posts, 3); assert.equal(state.settings.replies, 15);
+  root.querySelector('[data-kind="posts"][data-amount="1"]').click();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(root.querySelector('.quest[data-kind="posts"] .track').getAttribute('aria-valuenow'), '1');
+  assert.equal(commands.length, 2);
+  assert.equal(document.querySelector('main').textContent, 'X page remains here');
+  assert.equal(root.querySelector('.hud').style.width, '232px');
+  assert.equal(root.querySelector('.verified-badge').hidden, true);
+  root.querySelector('.assessment-toggle').click();
+  assert.equal(root.querySelector('.settings').hidden, true);
+  assert.equal(root.querySelector('.assessment-panel').hidden, false);
+  assert.equal(root.querySelectorAll('.dimension').length, 5);
+  assert.match(root.querySelector('.assessment-coverage').textContent, /暂定评级 · 1 \/ 5/);
+  assert.equal([...root.querySelectorAll('.dimension b')].filter(n => n.textContent === '未采集').length, 4);
+  state = reduce(state, { type: 'capture', username: 'soap628', posts: [], blueVerified: true, verifiedFollowers: { value: 2200, approximate: true }, analyticsSummary: { period: { label: '2W', days: 14, start: null, end: null }, impressions: { value: 98000, approximate: true }, engagements: { value: 3200, approximate: true } } }, now);
+  hud.update(hudSummary(state, now));
+  assert.equal(root.querySelector('.verified-badge').hidden, false);
+  assert.equal(root.querySelector('.verified-followers .metric-value').textContent, '≈2,200');
+  assert.equal(root.querySelector('.views .metric-label').textContent, '2W 曝光');
+  assert.equal(root.querySelector('.views .metric-value').textContent, '≈98k');
+  assert.match(root.querySelector('.views').title, /14 天日均/);
+  assert.equal(root.querySelector('.engagements .metric-value').textContent, '≈3,200');
+  state = reduce(state, { type: 'capture', username: 'soap628', posts: [], blueVerified: false }, now);
+  hud.update(hudSummary(state, now));
+  assert.equal(root.querySelector('.verified-badge').hidden, true);
+  root.querySelector('.connection-toggle').click();
+  assert.equal(root.querySelector('.assessment-panel').hidden, true);
+  assert.equal(root.querySelector('.connection-verified').textContent, '当前未认证');
+  hud.destroy(); assert.equal(document.querySelector('#x-focus-hud'), null);
+});

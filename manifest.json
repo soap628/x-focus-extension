@@ -1,0 +1,24 @@
+{
+  "manifest_version": 3,
+  "name": "__MSG_extensionName__",
+  "default_locale": "zh_CN",
+  "version": "0.6.0",
+  "description": "__MSG_extensionDescription__",
+  "minimum_chrome_version": "116",
+  "permissions": ["storage"],
+  "host_permissions": ["https://x.com/*", "https://www.x.com/*"],
+  "background": { "service_worker": "background.js", "type": "module" },
+  "action": { "default_title": "__MSG_actionTitle__" },
+  "options_ui": { "page": "sidepanel.html", "open_in_tab": true },
+  "content_scripts": [
+    { "matches": ["https://x.com/*", "https://www.x.com/*"], "js": ["network-parser.js", "page-observer.js"], "run_at": "document_start", "world": "MAIN" },
+    { "matches": ["https://x.com/*", "https://www.x.com/*"], "js": ["scanner.js", "i18n.js", "relic-icons.js", "hud-theme.js", "hud.js", "content.js"], "run_at": "document_start" }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["assets/ranger-portrait-v1.png", "assets/ornate-panel-v1.png", "assets/treasure-chest-v1.png"],
+      "matches": ["https://x.com/*", "https://www.x.com/*"]
+    }
+  ],
+  "content_security_policy": { "extension_pages": "script-src 'self'; object-src 'self'" }
+}

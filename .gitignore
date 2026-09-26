@@ -1,0 +1,15 @@
+node_modules/
+*.zip
+
+# Local configuration and exported account data
+.env
+.env.*
+!.env.example
+*.log
+backups/
+exports/
+x-focus-*.json
+x-focus-*.csv
+coverage/
+.DS_Store
+Thumbs.db

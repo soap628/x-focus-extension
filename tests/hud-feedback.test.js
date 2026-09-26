@@ -1,0 +1,65 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import vm from 'node:vm';
+import { parseHTML } from 'linkedom';
+import { newState, reduce } from '../core.js';
+import { hudSummary } from '../hud-state.js';
+const now = new Date('2026-09-26T12:00:00Z');
+const source = ['i18n.js', 'relic-icons.js', 'hud-theme.js', 'hud.js'].map(name => fs.readFileSync(new URL(`../${name}`, import.meta.url), 'utf8')).join('\n');
+function setup({ posts = 0, replies = 0 } = {}) {
+  const { document, window } = parseHTML('<html><body><main>X page</main></body></html>'); window.innerWidth = 1920;
+  const timeouts = [];
+  const context = vm.createContext({ document, window, MutationObserver: class { observe() {} disconnect() {} }, requestAnimationFrame: f => f(), setInterval: () => 0, clearInterval() {}, setTimeout: f => timeouts.push(f), clearTimeout() {} });
+  vm.runInContext(source, context);
+  let state = reduce(newState(), { type: 'settings', username: 'soap628', posts: 2, replies: 10 }, now);
+  Object.assign(state.days['2026-09-26'], { posts, replies });
+  const hud = context.XFocusHUD.mount({ getBounds: () => ({ left: 410, right: 1510 }) });
+  const root = document.querySelector('#x-focus-hud').shadowRoot;
+  const render = () => hud.update(hudSummary(state, now));
+  render();
+  return { hud, root, timeouts, render, act(action) { state = reduce(state, action, now); render(); } };
+}
+test('experience feedback occurs once for an action, never on initial load or duplicate updates', () => {
+  const e = setup({ posts: 50 });
+  assert.equal(e.root.querySelector('.reward-float').hidden, true);
+  e.act({ type: 'adjust', kind: 'posts', amount: 1 });
+  assert.equal(e.root.querySelector('.reward-float').textContent, '+20 EXP');
+  assert.equal(e.timeouts.length, 1);
+  e.render(); e.render();
+  assert.equal(e.timeouts.length, 1);
+  e.timeouts[0]();
+  assert.equal(e.root.querySelector('.reward-float').hidden, true);
+  e.hud.destroy();
+});
+test('level-up feedback follows a composite score threshold crossed by an action', () => {
+  const e = setup({ posts: 2, replies: 2 }); // 50 XP gives 79 composite points: Lv.4.
+  assert.match(e.root.querySelector('.level').textContent, /04/);
+  e.act({ type: 'adjust', kind: 'replies', amount: 1 });
+  assert.equal(e.root.querySelector('.reward-float').textContent, '升至 LV. 5');
+  assert.equal(e.root.querySelector('.rank').textContent, '暮光游侠');
+  assert.equal(e.root.querySelector('.card').classList.contains('level-up'), true);
+  e.hud.destroy();
+});
+test('lowering goals can complete quests without pretending to earn more experience', () => {
+  const e = setup({ posts: 1, replies: 6 });
+  e.act({ type: 'settings', username: 'soap628', posts: 1, replies: 6 });
+  assert.equal(e.root.querySelector('.completion').hidden, false);
+  assert.equal(e.root.querySelector('.quest-total').textContent, '2 / 2');
+  assert.equal(e.root.querySelector('.reward-float').hidden, true);
+  assert.equal(e.timeouts.length, 0);
+  e.hud.destroy();
+});
+test('connection errors remain visible even when tracking is paused; diagnostics are independent from goals', () => {
+  const e = setup();
+  e.act({ type: 'tracking', enabled: false });
+  e.hud.setConnection({ status: 'error', message: '扩展已更新，请刷新 X 页面' });
+  assert.equal(e.root.querySelector('.status').textContent, '需要刷新页面');
+  e.root.querySelector('.connection-toggle').click();
+  assert.equal(e.root.querySelector('.connection-panel').hidden, false);
+  assert.match(e.root.querySelector('.connection-message').textContent, /刷新/);
+  e.root.querySelector('.settings-toggle').click();
+  assert.equal(e.root.querySelector('.connection-panel').hidden, true);
+  assert.equal(e.root.querySelector('.settings').hidden, false);
+  e.hud.destroy();
+});

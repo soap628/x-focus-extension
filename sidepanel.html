@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="zh-CN">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>X Focus · 起号日常</title><link rel="stylesheet" href="styles.css"><script src="app.js" type="module"></script></head>
+<body>
+  <div class="app">
+    <header class="topbar"><a class="brand" href="#" aria-label="X Focus 首页"><span class="brand-icon">↗</span><span>X FOCUS<small>把注意力，放在积累上。</small></span></a><button class="icon-button" id="settings-button" aria-label="设置账号与目标">⚙</button></header>
+    <div id="preview-banner" class="preview-banner" hidden>本地预览 · 数据仅保存在此预览，扩展数据独立存储</div>
+    <div class="language-bar"><label for="language-select">语言</label><select id="language-select" aria-label="语言"><option value="zh-CN" lang="zh-CN">简体中文</option><option value="en" lang="en">English</option></select></div>
+    <div class="account-line"><span id="account-label">你的 X 起号日常</span><span class="local-label"><i></i> 本机保存</span></div>
+    <nav class="tabs" aria-label="页面"><button class="selected" data-tab="today" aria-selected="true">今日行动</button><button data-tab="growth" aria-selected="false">增长记录</button></nav>
+    <main>
+      <section id="today-page">
+        <div class="section-heading"><div><div class="eyebrow" id="today-date"></div><h1>让今天，向前一点。</h1></div><span class="streak" id="streak">连续 0 天</span></div>
+        <section class="hero-card" aria-label="今日目标">
+          <div class="hero-top"><div><span class="eyebrow">TODAY'S FOCUS</span><h2 id="remaining">从第一条开始</h2><p id="hero-subtitle">每一次认真表达，都在积累。</p></div><div id="progress-ring" class="progress-ring"><span id="progress-number">0<small>%</small></span></div></div>
+          <div class="goal-row"><div class="goal-icon">↗</div><div class="goal-body"><div class="goal-title"><h3>发一条好内容</h3><span><b id="post-count">0</b><span id="post-goal"> / 2</span></span></div><div class="progress-track"><div id="post-bar"></div></div></div><div class="counter-buttons"><button data-adjust="posts:-1" aria-label="减少一条发帖">−</button><button data-adjust="posts:1" aria-label="记录一条发帖">+</button></div></div>
+          <div class="goal-row"><div class="goal-icon purple">↳</div><div class="goal-body"><div class="goal-title"><h3>认真参与对话</h3><span><b id="reply-count">0</b><span id="reply-goal"> / 10</span></span></div><div class="progress-track purple"><div id="reply-bar"></div></div></div><div class="counter-buttons"><button data-adjust="replies:-1" aria-label="减少一条回复">−</button><button data-adjust="replies:1" aria-label="记录一条回复">+</button></div></div>
+          <p class="hero-foot" id="auto-count-summary">发布成功后自动记录 · ± 用于补录与修正</p>
+        </section>
+        <div class="section-heading compact"><h2>每一点增长，都算数</h2><button class="text-button" id="record-button">记录数据 ↗</button></div>
+        <div class="metrics"><article class="metric-card"><span>粉丝总数</span><strong id="followers-value">—</strong><small id="followers-delta">等待第一笔记录</small><small id="followers-source"></small></article><article class="metric-card"><span>账号当日曝光</span><strong id="impressions-value">—</strong><small id="impressions-meta">从 X 分析页手动记录</small></article></div>
+        <div class="view-increment"><span>已跟踪帖子今日新增浏览 <b id="tracked-views-value">—</b></span><small id="tracked-views-meta">只累计已采集帖子的可确认增量</small></div>
+        <div class="capture-card"><div class="capture-title"><span class="status-dot"></span><strong id="tracking-title">本机自动统计</strong><button class="text-button" id="tracking-button">暂停</button></div><p id="capture-status">打开 X 后自动识别你的账号，也可在设置中填写。</p><div class="capture-actions"><button class="outline-button" id="profile-button">我的主页 ↗</button><button class="outline-button" id="analytics-button">分析页 ↗</button><button class="text-button" id="scan-button">立即读取</button></div></div>
+        <section class="note-card"><div><span class="note-icon">✦</span><h2>留一句，给明天的自己</h2></div><p id="today-note">今天哪条内容、哪次对话值得继续？</p><button class="text-button" id="note-button">写下今日复盘 ↗</button></section>
+        <p class="bottom-note">先完成可控的行动，再观察增长。<br><span>按北京时间划分每天 · 目标设为 0 可暂停该项</span></p>
+      </section>
+      <section id="growth-page" hidden>
+        <div class="section-heading"><div><div class="eyebrow">YOUR MOMENTUM</div><h1>看见积累的方向。</h1></div></div>
+        <div class="range-control" aria-label="时间范围"><button data-range="7" class="selected">近 7 天</button><button data-range="30">近 30 天</button></div>
+        <div class="summary-strip"><div><strong id="summary-posts">0</strong><span>已记录发帖</span></div><div><strong id="summary-replies">0</strong><span>已记录回复</span></div><div><strong id="summary-complete">0</strong><span>目标达成天数</span></div></div>
+        <article class="chart-card"><div class="chart-heading"><h2>粉丝趋势</h2><span id="follower-trend-meta"></span></div><div id="followers-chart" class="chart"></div></article>
+        <article class="chart-card"><div class="chart-heading"><h2>账号当日曝光</h2><span>分析页自动读取 / 补录</span></div><div id="impressions-chart" class="chart"></div></article>
+        <details class="chart-card"><summary>已跟踪帖子的浏览增量</summary><p class="help-text">只包含采集到的精确浏览增量，覆盖范围随浏览变化，不等于全账号曝光。</p><div id="tracked-views-chart" class="chart"></div></details>
+        <div class="section-heading compact"><h2>日记录</h2><button class="text-button" id="history-record-button">补录 / 修正 ↗</button></div><div id="history" class="history"></div>
+        <div class="section-heading compact"><h2>已采集帖子</h2><span class="muted" id="captured-count">0 条</span></div><p class="help-text">仅含浏览时采集到的本人帖子。下方是单帖累计浏览，不等于账号当日曝光。</p><div id="captured-posts"></div>
+        <div class="data-actions"><button class="outline-button" id="export-csv">导出日记录 CSV</button><button class="outline-button" id="export-json">备份全部数据</button><button class="text-button" id="import-button">恢复备份</button><input type="file" id="import-file" accept="application/json,.json" hidden></div>
+      </section>
+    </main>
+    <footer>X FOCUS <span>每天做一点，长期看得见。</span></footer>
+  </div>
+  <dialog id="settings-dialog"><form id="settings-form"><div class="dialog-heading"><h2>你的起号节奏</h2><button type="button" class="icon-button" data-close aria-label="关闭设置">×</button></div><p class="help-text">目标从今天生效，历史目标保留。</p><label>X 用户名<input name="username" placeholder="例如 soap628" pattern="@?[A-Za-z0-9_]{1,15}" maxlength="16" autocomplete="off"><small>填 @ 后面的用户名，用于识别你自己的数据。</small></label><div class="form-grid"><label>每天发帖<input name="posts" type="number" min="0" max="1000" required></label><label>每天回复<input name="replies" type="number" min="0" max="1000" required></label></div><p class="help-text">数据保存在当前浏览器，建议定期导出备份。页面读取只在你浏览 X 时工作。</p><p id="settings-error" class="error" role="alert"></p><button class="primary-button" type="submit">保存目标</button></form></dialog>
+  <dialog id="record-dialog"><form id="record-form"><div class="dialog-heading"><h2>记录今天的积累</h2><button type="button" class="icon-button" data-close aria-label="关闭记录">×</button></div><label>记录日期<input type="date" name="date" required></label><div class="form-grid"><label>发帖条数<input name="posts" type="number" min="0" max="10000" placeholder="未记录"></label><label>回复条数<input name="replies" type="number" min="0" max="10000" placeholder="未记录"></label></div><div class="form-grid"><label>粉丝总数<input name="followers" type="number" min="0" max="1000000000000" placeholder="暂不填写"></label><label>账号当日曝光<input name="impressions" type="number" min="0" max="1000000000000" placeholder="暂不填写"></label></div><p class="help-text">曝光填写 X 分析页所选日期的账号曝光，不要填单帖累计浏览或近 7 天总量。空白保留已有数据，0 表示实际为零。</p><label>一句复盘<textarea name="note" rows="3" maxlength="1000" placeholder="什么值得继续，明天试着改变什么？"></textarea></label><p id="record-error" class="error" role="alert"></p><button class="primary-button" type="submit">保存记录</button></form></dialog>
+  <dialog id="import-dialog"><div class="dialog-heading"><h2>恢复数据备份</h2><button class="icon-button" data-close aria-label="关闭恢复">×</button></div><p id="import-summary"></p><p class="help-text">恢复会替换当前记录。请先下载当前备份，方便需要时恢复。</p><div class="data-actions"><button id="backup-before-import" class="outline-button">下载当前备份</button><button id="confirm-import" class="primary-button" disabled>替换并恢复</button></div><p id="import-error" class="error" role="alert"></p></dialog>
+  <div id="toast" role="status" aria-live="polite" hidden></div>
+</body></html>
