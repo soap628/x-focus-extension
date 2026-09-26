@@ -6,10 +6,11 @@ export const BACKUP_ALARM = 'xFocusLocalBackupPending';
 export const BACKUP_SAFETY_ALARM = 'xFocusLocalBackupSafety';
 const MINUTE = 60_000;
 const RETRY = 5 * MINUTE;
+export const AUTO_BACKUP_INTERVAL = 24 * 60 * MINUTE;
 const STALLED_AFTER = 15 * MINUTE;
 export const MAX_BACKUP_BYTES = 16 * 1024 * 1024;
 const randomHex = () => Array.from(globalThis.crypto.getRandomValues(new Uint8Array(6)), byte => byte.toString(16).padStart(2, '0')).join('');
-const initialMeta = () => ({ version: 1, enabled: true, archiveId: randomHex(), autoSlots: {}, pendingAutoKey: null, pendingAutoSlot: null, currentSignature: null, savedSignature: null, pendingSignature: null, downloadId: null, pendingFilename: null, lastDownloadId: null, filename: null, lastSuccessAt: null, lastAttemptAt: null, dirtySince: null, nextRunAt: null, error: null });
+const initialMeta = () => ({ version: 1, enabled: true, archiveId: randomHex(), autoSlots: {}, pendingAutoKey: null, pendingAutoSlot: null, currentSignature: null, savedSignature: null, pendingSignature: null, downloadId: null, pendingFilename: null, lastDownloadId: null, filename: null, lastSuccessAt: null, lastAttemptAt: null, lastAutoAttemptAt: null, dirtySince: null, nextRunAt: null, error: null });
 
 function hasData(state) {
   if (!state || typeof state !== 'object') return false;
@@ -54,6 +55,12 @@ export function createLocalBackup({ chrome, getState, now = () => new Date() }) 
   const serial = task => { const result = queue.then(task); queue = result.catch(() => {}); return result; };
   const persist = () => chrome.storage.local.set({ [LOCAL_BACKUP_KEY]: { ...meta } });
   const clearPending = () => { meta.pendingSignature = null; meta.downloadId = null; meta.pendingFilename = null; meta.pendingAutoKey = null; meta.pendingAutoSlot = null; };
+  const timestamp = value => Number.isFinite(Date.parse(value)) ? Date.parse(value) : 0;
+  const automaticDueAt = () => {
+    const baseline = Math.max(timestamp(meta.lastAutoAttemptAt), timestamp(meta.lastSuccessAt));
+    const retry = meta.error ? timestamp(meta.lastAttemptAt) + RETRY : 0;
+    return Math.max(baseline ? baseline + AUTO_BACKUP_INTERVAL : 0, retry, (meta.dirtySince ?? time()) + MINUTE);
+  };
 
   async function maintainSafetyAlarm() {
     const needed = Boolean(meta.enabled || meta.pendingSignature);
@@ -70,8 +77,7 @@ export function createLocalBackup({ chrome, getState, now = () => new Date() }) 
       await chrome.alarms.clear(BACKUP_ALARM);
       return;
     }
-    const earliest = meta.error && meta.lastAttemptAt ? Date.parse(meta.lastAttemptAt) + RETRY : 0;
-    const target = Math.max(time() + 1_000, earliest, (meta.dirtySince || time()) + MINUTE);
+    const target = Math.max(time() + 1_000, automaticDueAt());
     meta.nextRunAt = new Date(target).toISOString();
     await chrome.alarms.create(BACKUP_ALARM, { when: target });
   }
@@ -89,7 +95,8 @@ export function createLocalBackup({ chrome, getState, now = () => new Date() }) 
   async function fail(reason) {
     clearPending();
     meta.error = String(reason || 'The backup download did not finish.').slice(0, 240);
-    // A stalled/interrupted download starts a fresh retry cooldown when detected.
+    // Manual failures get a short cooldown; automatic attempts additionally keep
+    // their persisted 24-hour limit, including after interruption or rejection.
     meta.lastAttemptAt = iso();
     meta.dirtySince ??= time();
     await schedule();
@@ -156,6 +163,12 @@ export function createLocalBackup({ chrome, getState, now = () => new Date() }) 
     if (stored?.version === 1) {
       for (const key of Object.keys(meta)) if (Object.hasOwn(stored, key)) meta[key] = stored[key];
       meta.enabled = stored.enabled !== false;
+      // v0.9.0 did not distinguish automatic attempts. Conservatively inherit its
+      // latest attempt/success so upgrading cannot immediately start another file.
+      if (!Object.hasOwn(stored, 'lastAutoAttemptAt')) {
+        const baseline = Math.max(timestamp(stored.lastAttemptAt), timestamp(stored.lastSuccessAt));
+        meta.lastAutoAttemptAt = baseline ? new Date(baseline).toISOString() : null;
+      }
     }
     await maintainSafetyAlarm();
     await observe(await getState());
@@ -171,7 +184,9 @@ export function createLocalBackup({ chrome, getState, now = () => new Date() }) 
     const requestedSignature = meta.currentSignature;
     const result = () => ({ ...report(), requestedSignature });
     if (!hasData(state) || meta.pendingSignature || (!manual && (!meta.enabled || !dirty()))) return result();
-    if (!manual && meta.error && time() < Date.parse(meta.lastAttemptAt) + RETRY) { await schedule(); await persist(); return result(); }
+    // Every entry point, including the five-minute maintenance alarm, obeys the
+    // same rolling limit. Failed automatic attempts also consume the interval.
+    if (!manual && time() < automaticDueAt()) { await schedule(); await persist(); return result(); }
     meta.pendingSignature = await signature(state);
     if (manual) meta.pendingFilename = snapshotName(state, now());
     else {
@@ -182,6 +197,7 @@ export function createLocalBackup({ chrome, getState, now = () => new Date() }) 
     }
     meta.downloadId = null;
     meta.lastAttemptAt = iso();
+    if (!manual) meta.lastAutoAttemptAt = meta.lastAttemptAt;
     meta.error = null;
     meta.nextRunAt = null;
     await chrome.alarms.clear(BACKUP_ALARM);

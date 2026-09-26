@@ -22,10 +22,11 @@
         <div class="view-increment"><span>已跟踪帖子今日新增浏览 <b id="tracked-views-value">—</b></span><small id="tracked-views-meta">只累计已采集帖子的可确认增量</small></div>
         <div class="capture-card"><div class="capture-title"><span class="status-dot"></span><strong id="tracking-title">本机自动统计</strong><button class="text-button" id="tracking-button">暂停</button></div><p id="capture-status">打开 X 后自动识别你的账号，也可在设置中填写。</p><div class="capture-actions"><button class="outline-button" id="profile-button">我的主页 ↗</button><button class="outline-button" id="analytics-button">分析页 ↗</button><button class="text-button" id="scan-button">立即读取</button></div></div>
         <section id="local-backup" class="backup-card" aria-labelledby="backup-heading" tabindex="-1">
-          <div class="backup-heading"><div><span class="eyebrow">LOCAL SAVE</span><h2 id="backup-heading">本地存档</h2></div><label class="backup-toggle"><input type="checkbox" id="backup-enabled"><span>自动存档</span></label></div>
+          <div class="backup-heading"><div><span class="eyebrow">LOCAL SAVE</span><h2 id="backup-heading">本地存档</h2></div><label class="backup-toggle"><input type="checkbox" id="backup-enabled"><span>自动文件备份</span></label></div>
           <p id="backup-status" class="backup-status" role="status" aria-live="polite"></p>
-          <dl class="backup-details"><div><dt>最近写入电脑</dt><dd id="backup-time">—</dd></div><div><dt>存档位置</dt><dd id="backup-path"></dd></div></dl>
-          <p class="help-text">存档保存在浏览器下载目录的 X-Focus/账号 文件夹。每天自动轮换两份存档，手动保存另建独立文件。文件独立于扩展保留，不上传服务器。</p>
+          <dl class="backup-details"><div><dt>最近写入电脑</dt><dd id="backup-time">—</dd></div><div id="backup-next-row"><dt>预计下次文件备份</dt><dd id="backup-next">待排期</dd></div><div><dt>存档位置</dt><dd id="backup-path"></dd></div></dl>
+          <p class="help-text">发帖、回复和经验实时保存在本机扩展中，关闭自动文件备份不会停止记账。</p>
+          <p class="help-text">独立 JSON 文件保存在下载目录的 X-Focus/账号 文件夹，并会出现在 Edge 下载列表。自动模式最多每 24 小时下载一次，失败也不会频繁重试；随时可以手动备份。文件在卸载扩展后仍保留，不上传服务器。</p>
           <p class="backup-restore-help">卸载重装后，点“恢复存档”，按修改时间选择含原进度的 JSON 文件，并核对账号与记录摘要，再找回记录、经验和收藏。不会自动读取电脑文件。</p>
           <div class="backup-actions"><button id="backup-now" class="primary-button">立即保存到电脑</button><button id="backup-show" class="outline-button">打开备份文件位置</button><button id="backup-restore" class="outline-button">恢复存档</button></div>
           <p id="backup-error" class="error" role="alert"></p>

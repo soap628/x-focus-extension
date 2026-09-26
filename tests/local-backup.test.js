@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { newState, reduce, validateBackup } from '../core.js';
-import { createLocalBackup, LOCAL_BACKUP_KEY, BACKUP_ALARM, BACKUP_SAFETY_ALARM, MAX_BACKUP_BYTES } from '../local-backup.js';
+import { createLocalBackup, LOCAL_BACKUP_KEY, BACKUP_ALARM, BACKUP_SAFETY_ALARM, MAX_BACKUP_BYTES, AUTO_BACKUP_INTERVAL } from '../local-backup.js';
 
 const date = new Date('2026-09-26T10:00:00.123Z');
 const meaningful = () => reduce(reduce(newState(), { type: 'settings', username: 'soap628', posts: 2, replies: 10 }, date), { type: 'daily', date: '2026-09-26', posts: 1, replies: 0, followers: 123, note: '' }, date);
@@ -35,6 +35,7 @@ function setup(initial = meaningful(), savedMeta) {
   let engine = create();
   return {
     get engine() { return engine; }, chrome, values, alarms, records, downloadCalls, shown, canceled,
+    get now() { return new Date(clock); },
     get state() { return state; }, set state(value) { state = structuredClone(value); },
     advance(ms) { clock += ms; }, fail(message) { failDownload = message; },
     restart() { listeners.download = []; listeners.alarm = []; engine = create(); return engine; },
@@ -138,7 +139,7 @@ test('completion of an older snapshot cannot clear changes made during its downl
   assert.notEqual(requested.requestedSignature, requested.lastCompletedSignature);
   const finished = await h.finish(first.downloadId);
   assert.equal(finished.status, 'pending'); assert.equal(finished.dirty, true);
-  h.advance(60_000);
+  h.advance(AUTO_BACKUP_INTERVAL);
   const second = await h.alarm();
   assert.notEqual(second.downloadId, first.downloadId);
   assert.equal(h.downloadCalls.length, 2);
@@ -147,7 +148,7 @@ test('completion of an older snapshot cannot clear changes made during its downl
   assert.equal(latest.lastCompletedSignature, requested.requestedSignature);
 });
 
-test('interrupted and rejected downloads preserve data and throttle automatic retries to five minutes', async () => {
+test('failed manual downloads preserve data and wait before the first automatic attempt', async () => {
   for (const rejected of [false, true]) {
     const h = setup();
     if (rejected) h.fail('FILE_ACCESS_DENIED');
@@ -228,6 +229,9 @@ test('disabled automatic backup persists across workers while explicit manual ba
 test('the safety alarm backs up persisted changes missed by changed notifications', async () => {
   const h = setup(), running = await h.engine.runNow(); await h.finish(running.downloadId);
   h.advance(300_000); h.state.settings.language = 'en';
+  assert.equal((await h.alarm(BACKUP_SAFETY_ALARM)).status, 'pending');
+  assert.equal(h.downloadCalls.length, 1);
+  h.advance(AUTO_BACKUP_INTERVAL - 300_000);
   assert.equal((await h.alarm(BACKUP_SAFETY_ALARM)).status, 'saving');
   assert.equal(h.downloadCalls.length, 2);
 });
@@ -285,29 +289,24 @@ test('Windows device names and unexpected path characters cannot make unsafe bac
   }
 });
 
-test('automatic snapshots rotate two files per account and day only after successful completion', async () => {
-  const h = setup(); await h.engine.start();
-  const filenames = [];
-  for (let round = 0; round < 5; round++) {
-    h.advance(60_000); h.state.days['2026-09-26'].posts++;
-    await h.engine.changed(h.state);
-    const running = await h.alarm();
-    const call = h.downloadCalls.at(-1);
-    assert.equal(call.conflictAction, 'overwrite');
-    assert.match(call.filename, /^X-Focus\/soap628\/x-focus-2026-09-26-[a-f0-9]{12}-auto-[AB]\.json$/);
-    filenames.push(call.filename);
-    await h.finish(running.downloadId);
+test('legacy same-day A/B downloads only advance their slot on confirmed completion during upgrade', async () => {
+  for (const outcome of ['complete', 'interrupted']) {
+    const h = setup(); await h.engine.start(); h.advance(60_000);
+    const first = await h.alarm(); await h.finish(first.downloadId);
+    h.advance(60_000); h.state.settings.posts++; await h.engine.changed(h.state);
+    const meta = h.values[LOCAL_BACKUP_KEY];
+    delete meta.lastAutoAttemptAt;
+    Object.assign(meta, { pendingSignature: meta.currentSignature, pendingFilename: h.downloadCalls[0].filename.replace('auto-A', 'auto-B'), pendingAutoKey: 'soap628/2026-09-26', pendingAutoSlot: 'B', downloadId: 99, lastAttemptAt: new Date(date.getTime() + 120_000).toISOString() });
+    h.records.set(99, { id: 99, state: 'in_progress', startTime: meta.lastAttemptAt, filename: meta.pendingFilename });
+    const recovered = await h.restart().start();
+    assert.equal(recovered.downloadId, 99);
+    assert.equal(h.values[LOCAL_BACKUP_KEY].autoSlots['soap628/2026-09-26'], 'A');
+    await h.finish(99, outcome, outcome === 'interrupted' ? 'FILE_FAILED' : undefined);
+    assert.equal(h.values[LOCAL_BACKUP_KEY].autoSlots['soap628/2026-09-26'], outcome === 'complete' ? 'B' : 'A');
+    h.state.settings.posts++; await h.engine.changed(h.state);
+    h.advance(300_000); await h.alarm(BACKUP_SAFETY_ALARM);
+    assert.equal(h.downloadCalls.length, 1, 'upgrade must not immediately write a third same-day file');
   }
-  assert.equal(new Set(filenames).size, 2);
-  assert.deepEqual(filenames.map(name => name.slice(-6)), ['A.json', 'B.json', 'A.json', 'B.json', 'A.json']);
-  assert.equal(h.values[LOCAL_BACKUP_KEY].autoSlots['soap628/2026-09-26'], 'A');
-  h.advance(60_000); h.state.settings.posts++;
-  await h.engine.changed(h.state); const failed = await h.alarm();
-  const failedName = h.downloadCalls.at(-1).filename;
-  await h.finish(failed.downloadId, 'interrupted', 'FILE_FAILED');
-  assert.equal(h.values[LOCAL_BACKUP_KEY].autoSlots['soap628/2026-09-26'], 'A');
-  h.advance(300_000); await h.alarm();
-  assert.equal(h.downloadCalls.at(-1).filename, failedName, 'retry only overwrites the unsuccessful slot');
 });
 
 test('a new local day retains yesterday files and starts an independent automatic rotation', async () => {
@@ -315,7 +314,10 @@ test('a new local day retains yesterday files and starts an independent automati
   const first = await h.alarm(); await h.finish(first.downloadId);
   const yesterday = h.downloadCalls[0].filename;
   h.advance(7 * 60 * 60_000); h.state.settings.posts++;
-  await h.engine.changed(h.state); const next = await h.alarm(); await h.finish(next.downloadId);
+  await h.engine.changed(h.state); await h.alarm();
+  assert.equal(h.downloadCalls.length, 1, 'crossing local midnight cannot bypass the rolling interval');
+  h.advance(AUTO_BACKUP_INTERVAL - 7 * 60 * 60_000);
+  const next = await h.alarm(); await h.finish(next.downloadId);
   const today = h.downloadCalls[1].filename;
   assert.match(yesterday, /2026-09-26.*auto-A/);
   assert.match(today, /2026-09-27.*auto-A/, 'day uses configured Asia/Shanghai timezone');
@@ -352,22 +354,20 @@ test('manual snapshots remain immutable and do not advance or overwrite automati
 });
 
 test('recovery cannot mistake an old rotated file for a new interrupted attempt without a stored ID', async () => {
-  const h = setup(); await h.engine.start();
-  for (let index = 0; index < 2; index++) {
-    h.advance(60_000); h.state.settings.posts++;
-    await h.engine.changed(h.state); const active = await h.alarm(); await h.finish(active.downloadId);
-  }
+  const h = setup(); await h.engine.start(); h.advance(60_000);
+  const first = await h.alarm(); await h.finish(first.downloadId);
   h.advance(60_000); h.state.settings.posts++;
-  await h.engine.changed(h.state); const active = await h.alarm();
-  h.values[LOCAL_BACKUP_KEY].downloadId = null;
-  h.records.delete(active.downloadId);
+  await h.engine.changed(h.state);
+  const meta = h.values[LOCAL_BACKUP_KEY];
+  delete meta.lastAutoAttemptAt;
+  Object.assign(meta, { pendingSignature: meta.currentSignature, pendingFilename: h.downloadCalls[0].filename, pendingAutoKey: 'soap628/2026-09-26', pendingAutoSlot: 'A', downloadId: null, lastAttemptAt: new Date(date.getTime() + 120_000).toISOString() });
   const restored = await h.restart().start();
   assert.equal(restored.status, 'error');
   assert.equal(restored.dirty, true);
   assert.notEqual(restored.currentSignature, restored.lastCompletedSignature);
 });
 
-test('timed-out rotation cancels and verifies the old download before reusing its slot', async () => {
+test('timed-out rotation cancels and verifies the old download before a later daily attempt', async () => {
   const h = setup(); await h.engine.start(); h.advance(60_000);
   const first = await h.alarm();
   const firstName = h.downloadCalls[0].filename;
@@ -377,10 +377,12 @@ test('timed-out rotation cancels and verifies the old download before reusing it
   assert.deepEqual(h.canceled, [first.downloadId]);
   assert.equal(h.records.get(first.downloadId).state, 'interrupted');
   assert.equal(canceled.status, 'error');
-  h.advance(300_000);
+  h.advance(300_000); await h.alarm();
+  assert.equal(h.downloadCalls.length, 1, 'a canceled automatic attempt still consumes the daily allowance');
+  h.advance(AUTO_BACKUP_INTERVAL - 1_200_000);
   const next = await h.alarm();
   assert.notEqual(next.downloadId, first.downloadId);
-  assert.equal(h.downloadCalls[1].filename, firstName);
+  assert.notEqual(h.downloadCalls[1].filename, firstName, 'the next day keeps the earlier file intact');
   await h.finish(first.downloadId);
   assert.equal((await h.engine.status()).downloadId, next.downloadId, 'late old events cannot complete the new snapshot');
   assert.equal((await h.engine.status()).lastCompletedSignature, null);
@@ -401,10 +403,11 @@ test('cancel failure keeps the rotating slot reserved until the original downloa
   assert.equal(h.downloadCalls.length, 1, 'automatic and manual retries cannot create overlapping writers');
   const completed = await h.finish(original.downloadId);
   assert.equal(completed.dirty, true);
-  h.advance(60_000); const next = await h.alarm();
+  h.advance(AUTO_BACKUP_INTERVAL); const next = await h.alarm();
   assert.ok(next.downloadId);
   assert.match(h.downloadCalls[0].filename, /auto-A/);
-  assert.match(h.downloadCalls[1].filename, /auto-B/, 'a late completion advances the slot before the next write');
+  assert.equal(h.values[LOCAL_BACKUP_KEY].autoSlots['soap628/2026-09-26'], 'A');
+  assert.notEqual(h.downloadCalls[1].filename, h.downloadCalls[0].filename, 'a late completion is retained while the next day starts a separate slot');
 });
 
 test('cancel acknowledgement is insufficient while a follow-up search still reports the download running', async () => {
@@ -521,4 +524,120 @@ test('a disabled worker restores maintenance for its pending download and expose
   assert.equal(h.alarms.has(BACKUP_SAFETY_ALARM), false);
   h.advance(300_000); await h.alarm(BACKUP_SAFETY_ALARM);
   assert.equal(h.downloadCalls.length, 1);
+});
+
+test('frequent updates and both alarm paths cannot download more than once within a rolling 24 hours', async () => {
+  const h = setup(); await h.engine.start();
+  await h.alarm(BACKUP_SAFETY_ALARM);
+  assert.equal(h.downloadCalls.length, 0, 'maintenance cannot bypass the initial one-minute merge window');
+  h.advance(60_000); const first = await h.alarm(); await h.finish(first.downloadId);
+  const expected = h.now.getTime() + AUTO_BACKUP_INTERVAL;
+  for (let cycle = 0; cycle < 287; cycle++) {
+    h.advance(300_000); h.state.days['2026-09-26'].posts++;
+    await h.engine.changed(h.state);
+    await h.alarm(BACKUP_ALARM); const status = await h.alarm(BACKUP_SAFETY_ALARM);
+    assert.equal(h.downloadCalls.length, 1);
+    assert.equal(Date.parse(status.nextRunAt), expected);
+    if (cycle % 48 === 0) {
+      await h.engine.setEnabled(false); await h.engine.setEnabled(true);
+      await h.restart().start(); await h.alarm(BACKUP_SAFETY_ALARM);
+      assert.equal(h.downloadCalls.length, 1, 'toggle and service-worker restart cannot reset the interval');
+    }
+  }
+  h.advance(299_999); await h.alarm(); assert.equal(h.downloadCalls.length, 1);
+  h.advance(1); const second = await h.alarm(BACKUP_SAFETY_ALARM);
+  assert.equal(h.downloadCalls.length, 2);
+  assert.notEqual(second.downloadId, first.downloadId);
+  assert.equal(h.values[LOCAL_BACKUP_KEY].lastAutoAttemptAt, h.now.toISOString());
+  await h.alarm(BACKUP_ALARM); await h.alarm(BACKUP_SAFETY_ALARM);
+  assert.equal(h.downloadCalls.length, 2, 'multiple alarms at the deadline still start only one download');
+  await h.finish(second.downloadId);
+  h.advance(AUTO_BACKUP_INTERVAL); await h.alarm(BACKUP_SAFETY_ALARM);
+  assert.equal(h.downloadCalls.length, 2, 'a later day without new data does not create an identical file');
+});
+
+test('rejected and interrupted automatic attempts consume the full daily interval even after restart', async () => {
+  for (const failure of ['rejected', 'interrupted']) {
+    const h = setup(); await h.engine.start(); h.advance(60_000);
+    if (failure === 'rejected') h.fail('FILE_ACCESS_DENIED');
+    const attempt = await h.alarm();
+    if (failure === 'interrupted') await h.finish(attempt.downloadId, 'interrupted', 'FILE_ACCESS_DENIED');
+    const attemptedAt = h.now.getTime();
+    assert.equal(h.values[LOCAL_BACKUP_KEY].lastAutoAttemptAt, h.now.toISOString());
+    assert.equal(Date.parse((await h.engine.status()).nextRunAt), attemptedAt + AUTO_BACKUP_INTERVAL);
+    h.fail(null);
+    for (let cycle = 0; cycle < 12; cycle++) {
+      h.advance(300_000); h.state.settings.posts++;
+      await h.engine.changed(h.state); await h.restart().start();
+      await h.alarm(BACKUP_ALARM); await h.alarm(BACKUP_SAFETY_ALARM);
+      assert.equal(h.downloadCalls.length, 1);
+    }
+    h.advance(AUTO_BACKUP_INTERVAL - 3_600_000);
+    assert.equal((await h.alarm()).status, 'saving');
+    assert.equal(h.downloadCalls.length, 2);
+  }
+});
+
+test('the automatic attempt timestamp is committed before the browser download API is called', async () => {
+  const h = setup(); await h.engine.start(); h.advance(60_000);
+  const download = h.chrome.downloads.download;
+  h.chrome.downloads.download = async options => {
+    assert.equal(h.values[LOCAL_BACKUP_KEY].lastAutoAttemptAt, h.now.toISOString());
+    assert.ok(h.values[LOCAL_BACKUP_KEY].pendingSignature);
+    return download(options);
+  };
+  await h.alarm();
+  assert.equal(h.downloadCalls.length, 1);
+});
+
+test('v0.9.0 upgrades inherit the latest attempt or success instead of immediately creating another file', async () => {
+  for (const source of ['attempt', 'success', 'both']) {
+    const h = setup(); await h.engine.start();
+    const stored = h.values[LOCAL_BACKUP_KEY];
+    delete stored.lastAutoAttemptAt;
+    stored.lastAttemptAt = source === 'success' ? null : new Date(date.getTime() - 120_000).toISOString();
+    stored.lastSuccessAt = source === 'attempt' ? null : new Date(date.getTime() - 60_000).toISOString();
+    stored.error = source === 'attempt' ? 'FILE_FAILED' : null;
+    const baseline = source === 'attempt' ? date.getTime() - 120_000 : date.getTime() - 60_000;
+    const migrated = await h.restart().start();
+    assert.equal(h.values[LOCAL_BACKUP_KEY].lastAutoAttemptAt, new Date(baseline).toISOString());
+    assert.equal(Date.parse(migrated.nextRunAt), baseline + AUTO_BACKUP_INTERVAL);
+    await h.alarm(); await h.alarm(BACKUP_SAFETY_ALARM);
+    assert.equal(h.downloadCalls.length, 0);
+    h.advance(300_000); await h.restart().start(); await h.alarm();
+    assert.equal(h.downloadCalls.length, 0);
+    h.advance(baseline + AUTO_BACKUP_INTERVAL - h.now.getTime());
+    assert.equal((await h.alarm()).status, 'saving');
+    assert.equal(h.downloadCalls.length, 1);
+  }
+});
+
+test('manual snapshots remain immediate during automatic cooldown and postpone the next automatic snapshot after success', async () => {
+  const h = setup(); await h.engine.start(); h.advance(60_000);
+  const automatic = await h.alarm(); await h.finish(automatic.downloadId);
+  const automaticTime = h.values[LOCAL_BACKUP_KEY].lastAutoAttemptAt;
+  h.advance(120_000);
+  for (let index = 0; index < 3; index++) {
+    h.state.settings.posts++; await h.engine.changed(h.state);
+    const manual = await h.engine.runNow();
+    assert.equal(manual.status, 'saving');
+    assert.equal(h.downloadCalls.at(-1).conflictAction, 'uniquify');
+    await h.finish(manual.downloadId);
+  }
+  assert.equal(h.downloadCalls.length, 4);
+  assert.equal(h.values[LOCAL_BACKUP_KEY].lastAutoAttemptAt, automaticTime);
+  const manualSuccessAt = h.now.getTime();
+  h.state.settings.posts++; await h.engine.changed(h.state);
+  assert.equal(Date.parse((await h.engine.status()).nextRunAt), manualSuccessAt + AUTO_BACKUP_INTERVAL);
+  h.advance(AUTO_BACKUP_INTERVAL - 1); await h.alarm(BACKUP_SAFETY_ALARM);
+  assert.equal(h.downloadCalls.length, 4);
+  h.advance(1); await h.alarm(); assert.equal(h.downloadCalls.length, 5);
+});
+
+test('new-version worker restart does not misclassify a failed manual attempt as an automatic attempt', async () => {
+  const h = setup(); h.fail('USER_CANCELED');
+  await h.engine.runNow();
+  assert.equal(h.values[LOCAL_BACKUP_KEY].lastAutoAttemptAt, null);
+  await h.restart().start();
+  assert.equal(h.values[LOCAL_BACKUP_KEY].lastAutoAttemptAt, null, 'migration runs only when the field was absent in v0.9.0');
 });

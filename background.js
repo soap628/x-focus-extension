@@ -9,7 +9,6 @@ const localBackup = createLocalBackup({ chrome, getState: async () => {
   return initializeRewards(upgradeState(data[STORAGE_KEY] || newState(), now), now);
 } });
 const scheduleBackup = state => localBackup.changed(state).catch(() => {});
-const backupStatus = () => localBackup.status().catch(() => ({ enabled: true, status: 'error', lastSuccessAt: null, filename: null, error: '本地存档暂不可用' }));
 void localBackup.start().catch(() => {});
 chrome.action?.onClicked.addListener(tab => {
   if (tab.id) chrome.tabs.sendMessage(tab.id, { type: 'hud-toggle' }).catch(() => {});
@@ -23,7 +22,7 @@ async function notifyTabs(state) {
   await Promise.allSettled(tabs.map(tab => chrome.tabs.sendMessage(tab.id, { type: 'config', config: config(state), hud })));
 }
 chrome.runtime.onInstalled.addListener(() => {
-  queue = queue.then(async () => { const data = await chrome.storage.local.get(STORAGE_KEY); const now = new Date(); const state = initializeRewards(upgradeState(data[STORAGE_KEY] || newState(), now), now); await chrome.storage.local.set({ [STORAGE_KEY]: state }); await scheduleBackup(state); }).catch(console.error);
+  queue = queue.then(async () => { const data = await chrome.storage.local.get(STORAGE_KEY); const now = new Date(); const state = initializeRewards(upgradeState(data[STORAGE_KEY] || newState(), now), now); await chrome.storage.local.set({ [STORAGE_KEY]: state }); void scheduleBackup(state); }).catch(console.error);
 });
 chrome.runtime.onMessage.addListener((message, sender, respond) => {
   if (sender.id !== chrome.runtime.id) return;
@@ -53,7 +52,7 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
       const now = new Date();
       const state = initializeRewards(upgradeState(original, now), now);
       if (!original.tracking?.startedAt || original.version !== 2 || !original.account || !Object.hasOwn(original, 'analyticsSummary') || original.rewards?.levelSystem !== 'action-v1' || !original.settings.language || original.hudPreferences === undefined || Object.values(original.days).some(day => !Object.hasOwn(day, 'verifiedFollowers'))) await chrome.storage.local.set({ [STORAGE_KEY]: state });
-      if (message.type === 'get') { respond({ ok: true, state, backup: await backupStatus() }); return; }
+      if (message.type === 'get') { respond({ ok: true, state }); return; }
       if (['config', 'hud'].includes(message.type)) { respond({ ok: true, config: config(state), hud: hudSummary(state) }); return; }
       if (message.type === 'hud-command' && message.command === 'open-backups') {
         await chrome.tabs.create({ url: chrome.runtime.getURL('sidepanel.html#backup') });
@@ -62,8 +61,10 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
       const action = message.type === 'hud-command' ? hudAction(message, state) : message;
       const next = action.type === 'open-chest' ? openChest(state, action.id, now) : settleRewards(state, reduce(state, action, now), action, now);
       await chrome.storage.local.set({ [STORAGE_KEY]: next });
-      if (message.type !== 'heartbeat') await scheduleBackup(next);
-      respond(fromPanel ? { ok: true, state: next, backup: await backupStatus() } : { ok: true, config: config(next), hud: hudSummary(next) });
+      // Downloads have their own queue. A slow file dialog or download status
+      // lookup must never hold up the committed action ledger or its response.
+      if (message.type !== 'heartbeat') void scheduleBackup(next);
+      respond(fromPanel ? { ok: true, state: next } : { ok: true, config: config(next), hud: hudSummary(next) });
       if (message.type !== 'heartbeat') void notifyTabs(next).catch(() => {});
     } catch (error) { respond({ ok: false, error: error.message || '无法保存数据' }); }
   };

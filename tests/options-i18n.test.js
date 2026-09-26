@@ -159,7 +159,7 @@ function restoreFixture() {
 test('local backup card distinguishes queued, saving and completed files without changing action records', async () => {
   const env = await loadOptions('en', true), { document } = env, before = JSON.stringify(env.stored);
   assert.equal(document.querySelector('#local-backup').hidden, false);
-  assert.match(document.querySelector('#backup-status').textContent, /Automatic backups on/);
+  assert.match(document.querySelector('#backup-status').textContent, /Automatic file backups on/);
   assert.match(document.querySelector('#backup-time').textContent, /No completed file/);
   document.querySelector('#backup-now').click(); await flush();
   assert.equal(env.actions.at(-1).type, 'backup-now');
@@ -167,7 +167,7 @@ test('local backup card distinguishes queued, saving and completed files without
   assert.match(document.querySelector('#backup-status').textContent, /Completion not yet confirmed/);
   assert.equal(document.querySelector('#backup-show').disabled, true);
   env.updateBackup({ status: 'pending', inFlightSignature: null }); await flush();
-  assert.match(document.querySelector('#backup-status').textContent, /waiting to be saved/);
+  assert.equal(document.querySelector('#backup-status').textContent, 'Local records saved · Waiting for the next file backup');
   env.updateBackup({ status: 'saved', lastSuccessAt: '2026-09-26T02:34:00Z', filename: 'X-Focus/soap628/session-1.json' }); await flush();
   assert.equal(document.querySelector('#backup-status').textContent, 'File saved to computer');
   assert.match(document.querySelector('#backup-time').textContent, /10:34/);
@@ -180,11 +180,37 @@ test('backup settings and save failures remain separate from the normal tracking
   const checkbox = document.querySelector('#backup-enabled'); checkbox.checked = false;
   checkbox.dispatchEvent(new window.Event('change')); await flush();
   assert.deepEqual(JSON.parse(JSON.stringify(env.actions.at(-1))), { type: 'backup-setting', enabled: false });
-  assert.match(document.querySelector('#backup-status').textContent, /Automatic backups off/);
+  assert.match(document.querySelector('#backup-status').textContent, /Automatic file backups off/);
   env.fail('无法保存'); document.querySelector('#backup-now').click(); await flush();
   assert.match(document.querySelector('#backup-error').textContent, /Could not save/);
   document.querySelector('[data-adjust="posts:1"]').click(); await flush();
   assert.equal(env.stored.days[core.dayKey()].posts, 2);
+});
+
+test('file backup scheduling copy distinguishes immediate local records from daily downloads', async () => {
+  const env = await loadOptions('en', true), { document, window } = env;
+  const panel = document.querySelector('#local-backup');
+  assert.match(panel.textContent, /saved to the local extension as they are recorded/);
+  assert.match(panel.textContent, /appear in the Edge downloads list/);
+  assert.match(panel.textContent, /at most once every 24 hours/);
+  assert.match(panel.textContent, /without frequent retries after failures/);
+  assert.equal(document.querySelector('#backup-next').textContent, 'Not scheduled yet');
+  const start = env.actions.length;
+  env.updateBackup({ status: 'pending', nextRunAt: '2026-09-28T02:34:00Z' }); await flush();
+  assert.equal(document.querySelector('#backup-status').textContent, 'Local records saved · Waiting for the next file backup');
+  assert.equal(document.querySelector('#backup-next-row').hidden, false);
+  assert.match(document.querySelector('#backup-next').textContent, /10:34/);
+  assert.equal(env.actions.slice(start).every(action => action.type === 'backup-status'), true, 'showing a schedule never starts a download');
+  env.updateBackup({ status: 'error', error: '无法保存' }); await flush();
+  assert.equal(document.querySelector('#backup-status').textContent, 'File backup failed · Local records saved; retry manually');
+  assert.equal(document.querySelector('#backup-now').disabled, false);
+  const checkbox = document.querySelector('#backup-enabled'); checkbox.checked = false;
+  checkbox.dispatchEvent(new window.Event('change')); await flush();
+  assert.equal(document.querySelector('#backup-next-row').hidden, true);
+  env.update('zh-CN');
+  assert.match(panel.textContent, /自动文件备份/);
+  assert.match(panel.textContent, /最多每 24 小时下载一次/);
+  assert.equal(document.querySelector('#backup-status').textContent, '自动文件备份已关闭 · 本机记录仍实时保存');
 });
 
 test('backup hash opens the today page and missing storage event APIs do not break the dashboard', async () => {
@@ -203,20 +229,20 @@ test('manual saves report completion while automatic backups remain disabled', a
   assert.equal(checkbox.checked, false);
   const completed = { enabled: false, status: 'disabled', dirty: false, inFlightSignature: null, currentSignature: 'snapshot-1', lastCompletedSignature: 'snapshot-1', requestedSignature: 'snapshot-1', lastSuccessAt: '2026-09-26T02:34:00Z' };
   env.updateBackup(completed); await flush();
-  assert.equal(document.querySelector('#backup-status').textContent, 'File saved to computer · Automatic backups off');
+  assert.equal(document.querySelector('#backup-status').textContent, 'File saved to computer · Automatic file backups off');
   assert.equal(checkbox.checked, false);
   assert.equal(document.querySelector('#backup-now').disabled, false);
   env.nextBackup(completed); document.querySelector('#backup-now').click(); await flush();
   assert.equal(document.querySelector('#toast').textContent, 'File saved to computer');
   assert.equal(checkbox.checked, false);
   env.updateBackup({ dirty: true }); await flush();
-  assert.equal(document.querySelector('#backup-status').textContent, 'Automatic backups off · Manual saves available');
+  assert.equal(document.querySelector('#backup-status').textContent, 'Automatic file backups off · Local records still save immediately');
   env.nextBackup({ ...completed, currentSignature: 'new-snapshot', requestedSignature: 'new-snapshot', dirty: true });
   document.querySelector('#backup-now').click(); await flush();
   assert.match(document.querySelector('#toast').textContent, /Save requested/);
   assert.equal(checkbox.checked, false);
   env.updateBackup(completed); await flush(); env.update('zh-CN');
-  assert.equal(document.querySelector('#backup-status').textContent, '文件已写入电脑 · 自动存档已关闭');
+  assert.equal(document.querySelector('#backup-status').textContent, '文件已写入电脑 · 自动文件备份已关闭');
 });
 
 test('demo does not pretend that files were written to the computer', async () => {

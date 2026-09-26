@@ -178,11 +178,13 @@ function renderImportSummary() {
 }
 function renderBackup() {
   const status = !isExtension ? 'unavailable' : backupInfo.status;
-  const labels = { loading: '正在读取存档状态…', unavailable: isExtension ? '当前浏览器无法自动存档，可手动下载备份。' : '预览中无法自动保存电脑文件，请在已安装的扩展中使用。', disabled: '自动存档已关闭 · 可以手动保存', idle: '自动存档已开启 · 等待记录变化', pending: '有更新等待写入电脑 · 请稍候', saving: '正在保存文件 · 尚未确认写入完成', saved: '文件已写入电脑', error: '存档未完成 · 发帖和回复仍正常记账' };
+  const labels = { loading: '正在读取存档状态…', unavailable: isExtension ? '当前浏览器无法自动备份文件，可手动下载备份。' : '预览中无法自动保存电脑文件，请在已安装的扩展中使用。', disabled: '自动文件备份已关闭 · 本机记录仍实时保存', idle: '自动文件备份已开启 · 最多每 24 小时一次', pending: '本机记录已保存 · 等待下次文件备份', saving: '正在保存文件 · 尚未确认写入完成', saved: '文件已写入电脑', error: '文件备份失败 · 本机记录已保存，可手动重试' };
   const completedWhileDisabled = status === 'disabled' && backupInfo.lastSuccessAt && !backupInfo.dirty && backupInfo.currentSignature && backupInfo.lastCompletedSignature === backupInfo.currentSignature;
-  $('#backup-status').textContent = t(completedWhileDisabled ? '文件已写入电脑 · 自动存档已关闭' : labels[status] || labels.error);
+  $('#backup-status').textContent = t(completedWhileDisabled ? '文件已写入电脑 · 自动文件备份已关闭' : labels[status] || labels.error);
   $('#local-backup').dataset.status = status;
   $('#backup-time').textContent = backupInfo.lastSuccessAt ? formatTime(backupInfo.lastSuccessAt) : t('尚未保存到电脑');
+  $('#backup-next-row').hidden = !isExtension || !backupInfo.enabled || status === 'unavailable';
+  $('#backup-next').textContent = Number.isFinite(Date.parse(backupInfo.nextRunAt)) ? formatTime(backupInfo.nextRunAt) : t('待排期');
   $('#backup-path').textContent = backupInfo.filename || t('下载目录 / X-Focus/{name}/', { name: state.settings.username || 'local' });
   $('#backup-enabled').checked = !!backupInfo.enabled;
   $('#backup-enabled').disabled = !isExtension || backupBusy || status === 'loading' || status === 'unavailable';
@@ -221,7 +223,7 @@ async function runBackupCommand(message) {
   try {
     const result = await backupCommand(message);
     const completed = result.status === 'saved' || result.status === 'disabled' && result.lastSuccessAt && result.requestedSignature && result.lastCompletedSignature === result.requestedSignature;
-    if (message.type === 'backup-now') toast(t(completed ? '文件已写入电脑' : result.status === 'error' ? '存档未完成 · 发帖和回复仍正常记账' : '已提交保存，请等待“文件已写入电脑”状态。'), result.status === 'error');
+    if (message.type === 'backup-now') toast(t(completed ? '文件已写入电脑' : result.status === 'error' ? '文件备份失败 · 本机记录已保存，可手动重试' : '已提交保存，请等待“文件已写入电脑”状态。'), result.status === 'error');
   } catch (error) { backupInfo = { ...backupInfo, status: message.type === 'backup-show' ? backupInfo.status : 'error', error: error.message }; failure(error); }
   finally { backupBusy = false; renderBackup(); }
 }
