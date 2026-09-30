@@ -35,7 +35,9 @@ export function latestMetric(state, key, date) {
 
 function recentSummary(state, date, now) {
   const summary = state.analyticsSummary, period = summary?.period;
-  if (!period || !Number.isInteger(period.days) || period.days < 7 || period.days > 366) return null;
+  if (!period || !Number.isInteger(period.days) || period.days < 1 || period.days > 366) return null;
+  if ((period.start != null) !== (period.end != null)) return null;
+  if (period.start != null && (!validDay(period.start) || !validDay(period.end) || (Date.parse(period.end) - Date.parse(period.start)) / 86400000 + 1 !== period.days)) return null;
   if (!recentTimestamp(summary.at, date, now, state.settings?.timeZone)) return null;
   const oldest = recentDates(date, 28)[0];
   // A recently opened historic report is still historic, even if collected now.

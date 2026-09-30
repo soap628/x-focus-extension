@@ -84,6 +84,9 @@ export function followerDelta(state, date) {
   return { value: current.value - previous.value, previousDate, approximate: current.approximate || previous.approximate };
 }
 function metric(value, source, now, approximate = false) { return { value, source, at: now.toISOString(), approximate }; }
+// Network and DOM may describe the same observation within this interval.
+// Prefer its exact reading briefly; after that freshness wins over precision.
+export const METRIC_PRECISION_WINDOW_MS = 30000;
 const summaryKeys = ['impressions', 'engagements', 'profileVisits'];
 function analyticsPeriod(period) {
   if (!period || Array.isArray(period) || typeof period.label !== 'string' || !period.label.trim() || period.label.length > 80 || /[\u0000-\u001f\u007f]/.test(period.label) || !integer(period.days, 366) || period.days < 1) throw new Error('分析周期无效');
@@ -96,7 +99,14 @@ function incomingMetric(value, source, now) {
   return metric(value.value, source, now, value.approximate ?? false);
 }
 function mayReplaceMetric(previous, current) {
-  return previous?.source !== 'manual' && !(previous && !previous.approximate && current.approximate);
+  if (previous?.source === 'manual') return false;
+  if (!previous) return true;
+  const previousAt = Date.parse(previous.at), currentAt = Date.parse(current.at);
+  if (Number.isFinite(previousAt) && Number.isFinite(currentAt)) {
+    if (currentAt < previousAt) return false;
+    if (!previous.approximate && current.approximate && currentAt - previousAt <= METRIC_PRECISION_WINDOW_MS) return false;
+  }
+  return true;
 }
 function sameAnalyticsPeriod(previous, period, now) {
   if (!previous || previous.period.days !== period.days || previous.period.start !== period.start || previous.period.end !== period.end) return false;
@@ -156,10 +166,8 @@ export function reduce(state, action, now = new Date()) {
     let captured = false;
     if (action.followers && integer(action.followers.value)) {
       const day = ensureDay(next, today);
-      // Manual readings keep priority; a rounded label never replaces an exact reading.
-      if (day.followers?.source !== 'manual' && !(day.followers && !day.followers.approximate && action.followers.approximate)) {
-        day.followers = metric(action.followers.value, action.type === 'network' ? 'network' : 'page', now, Boolean(action.followers.approximate));
-      }
+      const incoming = metric(action.followers.value, action.type === 'network' ? 'network' : 'page', now, Boolean(action.followers.approximate));
+      if (mayReplaceMetric(day.followers, incoming)) day.followers = incoming;
       captured = true;
     }
     const source = action.type === 'network' ? 'network' : 'page';
@@ -178,23 +186,28 @@ export function reduce(state, action, now = new Date()) {
       const value = action.analyticsSummary;
       const period = analyticsPeriod(value.period);
       if (period.end !== null && period.end > today) throw new Error('分析周期不能晚于今天');
-      const samePeriod = sameAnalyticsPeriod(next.analyticsSummary, period, now);
-      const summary = samePeriod ? { ...next.analyticsSummary, period } : { period, impressions: null, engagements: null, profileVisits: null };
-      let received = false;
-      for (const key of summaryKeys) if (value[key] != null) {
-        const incoming = incomingMetric(value[key], source, now);
-        if (mayReplaceMetric(summary[key], incoming)) summary[key] = incoming;
-        received = true;
+      const incomingMetrics = {};
+      for (const key of summaryKeys) if (value[key] != null) incomingMetrics[key] = incomingMetric(value[key], source, now);
+      if (!Object.keys(incomingMetrics).length) throw new Error('分析快照缺少有效指标');
+      const previousSummaryAt = Date.parse(next.analyticsSummary?.at);
+      // Do not let a delayed older envelope switch the range or make retained
+      // metric timestamps newer than the envelope and therefore undisplayable.
+      if (!Number.isFinite(previousSummaryAt) || now.getTime() >= previousSummaryAt) {
+        const samePeriod = sameAnalyticsPeriod(next.analyticsSummary, period, now);
+        const summary = samePeriod ? { ...next.analyticsSummary, period } : { period, impressions: null, engagements: null, profileVisits: null };
+        for (const [key, incoming] of Object.entries(incomingMetrics)) {
+          if (mayReplaceMetric(summary[key], incoming)) summary[key] = incoming;
+        }
+        // Keep one range snapshot. Never add overlapping 7D/2W/4W totals.
+        next.analyticsSummary = { ...summary, at: now.toISOString(), source };
+        captured = true;
       }
-      if (!received) throw new Error('分析快照缺少有效指标');
-      // Keep one range snapshot. Never add overlapping 7D/2W/4W totals.
-      next.analyticsSummary = { ...summary, at: now.toISOString(), source };
-      captured = true;
     }
     if (Array.isArray(action.analytics)) for (const entry of action.analytics.slice(0, 31)) {
       if (!validDay(entry.date) || entry.date > today || !integer(entry.value)) continue;
       const day = ensureDay(next, entry.date);
-      if (day.impressions?.source !== 'manual' && !(day.impressions && !day.impressions.approximate && entry.approximate)) day.impressions = metric(entry.value, 'analytics', now, !!entry.approximate);
+      const incoming = metric(entry.value, 'analytics', now, !!entry.approximate);
+      if (mayReplaceMetric(day.impressions, incoming)) day.impressions = incoming;
       captured = true;
     }
     if (Array.isArray(action.posts)) for (const post of action.posts.slice(0, 200)) {

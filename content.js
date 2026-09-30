@@ -1,10 +1,10 @@
 (() => {
   let config = { username: '', enabled: true }, configLoaded = false;
-  let pending = false, lastSignature = '', lastRun = 0, stopped = false, lastHeartbeat = 0;
+  let pending = false, lastSignature = '', lastSignatureAt = 0, lastRun = 0, stopped = false, lastHeartbeat = 0;
   let detectedUsername = null, observerReady = false, observerTimedOut = false, handshakeTimer = null, transportError = '', observerTransport = null;
   let publishedConfig = '';
-  let collection = null, analyticsRetryTimer = null, analyticsRetries = 0;
-  const ANALYTICS_RETRY_MS = 2000, ANALYTICS_RETRY_LIMIT = 3;
+  let collection = null, collectionQueued = false, analyticsRetryTimer = null, analyticsRetries = 0;
+  const ANALYTICS_RETRY_MS = 2000, ANALYTICS_RETRY_LIMIT = 3, CAPTURE_SIGNATURE_TTL_MS = 30000;
   const inFlight = new Set();
   let hud = null, summary = null;
   const publishConfirmation = globalThis.XFocusPublishConfirmation?.mount({ document,
@@ -54,6 +54,7 @@
     if (next === detectedUsername) return false;
     detectedUsername = next;
     lastSignature = '';
+    lastSignatureAt = 0;
     clearAnalyticsRetry();
     return true;
   }
@@ -76,7 +77,7 @@
   }
   function configure(next) {
     if (!next) return;
-    if (next.username !== config.username || next.enabled !== config.enabled) { lastSignature = ''; clearAnalyticsRetry(); }
+    if (next.username !== config.username || next.enabled !== config.enabled) { lastSignature = ''; lastSignatureAt = 0; clearAnalyticsRetry(); }
     config = next;
     configLoaded = true;
     readIdentity();
@@ -146,8 +147,15 @@
     }, ANALYTICS_RETRY_MS);
   }
   function collect(force = false) {
-    if (collection) return collection;
-    collection = runCollection(force).finally(() => { collection = null; });
+    if (collection) { collectionQueued = true; return collection; }
+    collection = runCollection(force).finally(() => {
+      collection = null;
+      const replay = collectionQueued;
+      collectionQueued = false;
+      // A slow local save must not swallow later DOM changes. Keep one follow-up
+      // through the normal throttle, rather than recursively forcing a scan.
+      if (replay && observerConfig().enabled && document.visibilityState === 'visible') schedule();
+    });
     return collection;
   }
   async function runCollection(force = false) {
@@ -166,8 +174,15 @@
       scheduleAnalyticsRetry();
       const signature = JSON.stringify(payload) + new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Shanghai' }).format(new Date());
       const result = { count: payload.posts.length, followers: !!payload.followers, analytics: payload.analytics.length };
-      if (!force && signature === lastSignature) return result;
-      if (payload.followers || payload.verifiedFollowers || payload.analyticsSummary || typeof payload.blueVerified === 'boolean' || payload.posts.length || payload.analytics.length) { await send({ type: 'capture', ...payload }); lastSignature = signature; }
+      const signatureAge = Date.now() - lastSignatureAt;
+      if (!force && signature === lastSignature && signatureAge >= 0 && signatureAge < CAPTURE_SIGNATURE_TTL_MS) return result;
+      if (payload.followers || payload.verifiedFollowers || payload.analyticsSummary || typeof payload.blueVerified === 'boolean' || payload.posts.length || payload.analytics.length) {
+        await send({ type: 'capture', ...payload });
+        // Reobserve unchanged visible values after the short deduplication
+        // window, so a previously deferred rounded reading can become current.
+        lastSignature = signature;
+        lastSignatureAt = Date.now();
+      }
       return result;
     } catch (error) { return { error: error.message, code: error.code || (stopped ? 'stopped' : 'config') }; }
   }

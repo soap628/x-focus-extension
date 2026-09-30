@@ -6,7 +6,7 @@ import { parseHTML } from 'linkedom';
 
 const source = file => fs.readFileSync(new URL(`../${file}`, import.meta.url), 'utf8');
 const flush = () => new Promise(resolve => setImmediate(resolve));
-function environment({ pathname = '/home', body = null, enabled = true, account = 'soap628', observer = true, failure = null } = {}) {
+function environment({ pathname = '/home', body = null, enabled = true, account = 'soap628', observer = true, failure = null, beforeResponse = null } = {}) {
   let time = Date.parse('2026-09-26T04:00:00Z'), sequence = 0, mutate, onCommand, listener, scannerCalls = 0;
   const timers = new Map(), messages = [], statuses = [], window = new EventTarget();
   const document = body === null ? new EventTarget() : parseHTML(`<html><body><nav><a data-testid="AppTabBar_Profile_Link" href="/${account}">Profile</a></nav><main>${body}</main></body></html>`).document;
@@ -25,7 +25,9 @@ function environment({ pathname = '/home', body = null, enabled = true, account 
     XFocusHUD: { mount({ onCommand: handler }) { onCommand = handler; return { update() {}, setConnection(value) { statuses.push(value); } }; } },
     chrome: { runtime: { id: 'test', onMessage: { addListener(fn) { listener = fn; } }, async sendMessage(message) {
       messages.push({ ...message, sentAt: time });
-      if (failure) throw new Error(failure);
+      const reason = typeof failure === 'function' ? failure(message) : failure;
+      if (reason) throw new Error(reason);
+      if (beforeResponse) await beforeResponse(message);
       return { ok: true, config: { ...config }, hud: { revision: messages.filter(m => ['capture', 'network'].includes(m.type)).length } };
     } } }
   });
@@ -144,4 +146,102 @@ test('a static visible page still receives the 60-second fallback scan while hid
   assert.equal(visible.scans(), 2);
   const hidden = environment(); hidden.document.visibilityState = 'hidden'; await flush(); await hidden.advance(60350);
   assert.equal(hidden.scans(), 0);
+});
+
+test('unchanged visible captures are deduplicated briefly but reobserved by the 60-second fallback', async () => {
+  const e = environment({ pathname: '/soap628', body: '<a href="/soap628/followers">3,043 Followers</a>' });
+  await flush(); await e.advance(350);
+  assert.equal(e.messages.filter(m => m.type === 'capture').length, 1);
+  e.mutate(); await e.advance(3500);
+  assert.equal(e.messages.filter(m => m.type === 'capture').length, 1, 'the same DOM within 30 seconds is deduplicated');
+  await e.advance(56500);
+  const captures = e.messages.filter(m => m.type === 'capture');
+  assert.equal(captures.length, 2, 'the minute fallback sends a fresh observation even when its value is unchanged');
+  assert.equal(captures[1].followers.value, 3043);
+  assert.equal(captures[1].sentAt - captures[0].sentAt, 60000);
+});
+
+test('a repeated Analytics total is eligible again once its successful capture cache reaches 30 seconds', async () => {
+  const e = environment({ pathname: '/i/account_analytics', body: '<button aria-selected="true">7D</button><section><span>Impressions</span><strong>93.4K</strong></section>' });
+  await flush(); await e.advance(350);
+  await e.advance(28000);
+  e.mutate(); await e.advance(350);
+  assert.equal(e.messages.filter(m => m.type === 'capture').length, 1);
+  await e.advance(1300); e.mutate(); await e.advance(350);
+  const captures = e.messages.filter(m => m.type === 'capture');
+  assert.equal(captures.length, 2);
+  assert.equal(captures[1].analyticsSummary.impressions.value, 93400);
+});
+
+test('signature expiry never makes hidden or paused pages emit captures', async () => {
+  for (const mode of ['hidden', 'paused']) {
+    const e = environment({ pathname: '/soap628', body: '<a href="/soap628/followers">3,043 Followers</a>' });
+    await flush(); await e.advance(350);
+    if (mode === 'hidden') e.document.visibilityState = 'hidden';
+    else e.config({ enabled: false });
+    e.mutate(); await e.advance(120000);
+    assert.equal(e.messages.filter(m => m.type === 'capture').length, 1, mode);
+  }
+});
+
+test('failed captures do not seed or extend the signature cache, and forced scans bypass a fresh cache', async () => {
+  let failures = 1;
+  const e = environment({ pathname: '/soap628', body: '<a href="/soap628/followers">3,043 Followers</a>', failure: message => message.type === 'capture' && failures-- > 0 ? 'temporary storage error' : null });
+  await flush(); await e.advance(350);
+  assert.equal(e.messages.filter(m => m.type === 'capture').length, 1);
+  e.mutate(); await e.advance(3500);
+  assert.equal(e.messages.filter(m => m.type === 'capture').length, 2, 'an unchanged failed capture is retried before 30 seconds');
+  await e.command({ command: 'scan-now' });
+  assert.equal(e.messages.filter(m => m.type === 'capture').length, 3, 'manual scan bypasses the newly successful cache');
+});
+
+test('DOM changes during a slow save coalesce into one normally throttled follow-up scan', async () => {
+  let releaseSave, holdFirst = true;
+  const e = environment({ pathname: '/i/account_analytics', body: '<button aria-selected="true">7D</button><section><span>Impressions</span><strong>98K</strong></section>', beforeResponse: async message => {
+    if (message.type === 'capture' && holdFirst) { holdFirst = false; await new Promise(resolve => { releaseSave = resolve; }); }
+  } });
+  await flush(); await e.advance(350);
+  assert.equal(e.scans(), 1);
+  for (const value of ['99K', '100K', '101K']) {
+    e.mutate(() => { e.document.querySelector('strong').textContent = value; });
+    await e.advance(1500);
+  }
+  assert.equal(e.scans(), 1, 'there is only one active collection while storage is responding');
+  releaseSave(); await flush();
+  await e.advance(1499);
+  assert.equal(e.scans(), 1, 'the follow-up retains the Analytics throttle');
+  await e.advance(1);
+  const captures = e.messages.filter(m => m.type === 'capture');
+  assert.equal(e.scans(), 2);
+  assert.equal(captures.length, 2);
+  assert.equal(captures[1].analyticsSummary.impressions.value, 101000);
+  await e.advance(10000);
+  assert.equal(e.scans(), 2, 'coalesced changes do not leave a recursive scan loop');
+});
+
+test('a queued scan after a slow save is discarded if the page was hidden or tracking paused', async () => {
+  for (const mode of ['hidden', 'paused']) {
+    let releaseSave, holdFirst = true;
+    const e = environment({ pathname: '/i/account_analytics', body: '<button aria-selected="true">7D</button><section><span>Impressions</span><strong>98K</strong></section>', beforeResponse: async message => {
+      if (message.type === 'capture' && holdFirst) { holdFirst = false; await new Promise(resolve => { releaseSave = resolve; }); }
+    } });
+    await flush(); await e.advance(350);
+    e.mutate(() => { e.document.querySelector('strong').textContent = '99K'; });
+    await e.advance(1500);
+    if (mode === 'hidden') e.document.visibilityState = 'hidden';
+    else e.config({ enabled: false });
+    releaseSave(); await flush(); await e.advance(10000);
+    assert.equal(e.scans(), 1, mode);
+    assert.equal(e.messages.filter(m => m.type === 'capture').length, 1, mode);
+  }
+});
+
+test('a configuration broadcast during capture cannot create a self-sustaining collection loop', async () => {
+  const e = environment({ pathname: '/i/account_analytics', body: '<button aria-selected="true">7D</button><section><span>Impressions</span><strong>93.4K</strong></section>', beforeResponse: async message => {
+    if (message.type === 'capture') e.config({});
+  } });
+  await flush(); await e.advance(10000);
+  assert.equal(e.messages.filter(m => m.type === 'capture').length, 1);
+  assert.equal(e.scans(), 2, 'only the original scan and the broadcast-triggered deduplicated scan run');
+  assert.deepEqual([...e.timers.values()].map(timer => timer.delay), [60000]);
 });

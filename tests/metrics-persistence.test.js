@@ -47,18 +47,19 @@ test('account-only snapshots cannot follow a later change of bound account', () 
   }
 });
 
-test('precise and manual readings retain priority for the same day and range', () => {
+test('fresh readings replace old precision while manual readings keep priority', () => {
   let state = reduce(example(), capture({ verifiedFollowers: count(2214), analyticsSummary: { period, impressions: count(98045) } }), now);
   state = reduce(state, capture({ verifiedFollowers: count(2200, true), analyticsSummary: { period, impressions: count(99000, true), engagements: count(3211) } }), later);
-  assert.equal(state.days[date].verifiedFollowers.value, 2214);
-  assert.equal(state.analyticsSummary.impressions.value, 98045);
+  assert.equal(state.days[date].verifiedFollowers.value, 2200);
+  assert.equal(state.analyticsSummary.impressions.value, 99000);
+  assert.equal(state.analyticsSummary.impressions.approximate, true);
   assert.equal(state.analyticsSummary.engagements.value, 3211);
   assert.equal(state.analyticsSummary.profileVisits.value, 1100);
   state = reduce(state, { type: 'daily', date, verifiedFollowers: 2301, note: '' }, now);
   state.analyticsSummary.impressions.source = 'manual';
   state = reduce(state, capture({ verifiedFollowers: count(2310), analyticsSummary: { period, impressions: count(99050) } }), later);
   assert.equal(state.days[date].verifiedFollowers.value, 2301);
-  assert.equal(state.analyticsSummary.impressions.value, 98045);
+  assert.equal(state.analyticsSummary.impressions.value, 99000);
 });
 
 test('overlapping ranges replace the latest snapshot instead of accumulating', () => {

@@ -24,47 +24,67 @@
   }
   const normalize = text => String(text || '').replace(/\s+/g, ' ').trim().toLowerCase();
   const metricLabels = {
-    verifiedFollowers: /^(checkmark followers|verified followers|认证关注者|认证粉丝|蓝v粉丝|蓝 v 粉丝)$/,
+    verifiedFollowers: /^(checkmarkfollowers|verifiedfollowers|(?:已)?认证(?:的)?(?:关注者|粉丝)|(?:已)?認證(?:的)?(?:關注者|粉絲)|蓝v粉丝|藍v粉絲)$/,
     impressions: /^(impressions|曝光量|曝光次数|展示次数|展示量)$/,
-    engagements: /^(engagements|互动次数|互动量|参与次数)$/,
-    profileVisits: /^(profile visits|个人资料访问次数|个人资料访问量|主页访问量|主页访问次数)$/
+    engagements: /^(engagements|互动次数|互动数|互动量|参与次数|互動次數|互動數|互動量|參與次數)$/,
+    profileVisits: /^(profilevisits|个人资料访问次数|个人资料访问量|主页访问量|主页访问次数)$/
   };
   const metricSelector = 'span,p,h2,h3,div,strong';
+  const nonCardSelector = 'article,nav,aside,table,svg,canvas,[role="img"],[role="graphics-document"],[role="table"],[role="menu"],[role="menuitem"],[role="menuitemradio"],[role="menuitemcheckbox"],[role="listbox"],[role="option"],[role="combobox"],[role="tooltip"],select,option';
+  const otherMetricLabel = /^(engagementrate|互动率|互動率|参与率|參與率|followers|关注者|粉丝|likes|点赞|喜欢|replies|回复|reposts|转帖|转发|bookmarks|书签|shares|分享|posts|帖子)$/;
+  const metricLabelText = node => normalize(node.textContent).replace(/\s/g, '');
+  const isMetricLabel = node => visible(node) && !node.closest(nonCardSelector) && [...Object.values(metricLabels), otherMetricLabel].some(re => re.test(metricLabelText(node)));
   function visible(node) {
     return !node.closest('[hidden],[aria-hidden="true"]') && (typeof node.getClientRects !== 'function' || node.getClientRects().length > 0);
+  }
+  function metricText(node) {
+    if (!visible(node) || node.matches(nonCardSelector + ',script,style')) return '';
+    // Preserve DOM text boundaries: a value followed by an SVG growth arrow
+    // and percentage must not collapse from "93.4K 7K%" to "93.4K7K%".
+    return [...node.childNodes].map(child => child.nodeType === 3 ? child.textContent : child.nodeType === 1 ? metricText(child) : '').filter(text => text.trim()).join(' ');
+  }
+  function chartValue(node) {
+    return node.matches('canvas,[role="graphics-document"]') || (node.matches('[role="img"]:not(svg)') && node.textContent.trim())
+      || [...node.querySelectorAll('canvas,svg text,[role="graphics-document"],[role="img"]:not(svg)')].some(child => visible(child) && (child.matches('canvas,svg text,[role="graphics-document"]') || child.textContent.trim()));
+  }
+  function cardLabel(node, expression) {
+    if (!visible(node) || node.closest(nonCardSelector) || !expression.test(metricLabelText(node))) return false;
+    const control = node.closest('button,[role="button"]');
+    // Whole metric cards can be clickable. A label-only dropdown is different:
+    // its following chart ticks must never become a card observation.
+    const popup = control?.getAttribute('aria-haspopup');
+    if (control && ((popup && popup !== 'false') || isMetricLabel(control))) return false;
+    return ![...node.children].some(child => visible(child) && expression.test(metricLabelText(child)));
   }
   function metricCount(text) {
     // The card may show "2.2K / 3K" or "98K ↑7K%". The denominator and
     // comparison percentage are never observations of the metric itself.
     const number = '[\\d,]+(?:\\.\\d+)?\\s*[KMB万亿千]?';
-    const match = String(text || '').replace(/[\u00a0\u202f]/g, ' ').trim().match(new RegExp(`^(${number})(?:\\s*\\/\\s*${number})?(?:\\s*[↑↓+−-]\\s*${number}\\s*%)?\\s*$`, 'i'));
+    const match = String(text || '').replace(/[\u00a0\u202f]/g, ' ').replaceAll('／', '/').replaceAll('％', '%').trim().match(new RegExp(`^(${number})(?:\\s*\\/\\s*${number})?(?:(?:\\s*[↑↓+−-]\\s*|\\s+)${number}\\s*%)?\\s*$`, 'i'));
     return match ? parseCount(match[1]) : null;
   }
   function metricNodeValue(node) {
-    if (node.matches('svg,canvas,button,[role="button"]') || node.querySelector('canvas,svg text')) return null;
-    const full = metricCount(node.textContent);
-    if (full) return full;
-    // X sometimes renders the growth arrow as an SVG, so textContent is
-    // "98K7K%". Use the separate leading value element, never the percentage.
-    const children = [...node.children].filter(visible);
-    const first = children[0] && metricCount(children[0].textContent);
-    const tail = children.slice(1).map(child => child.textContent.trim()).join(' ').trim();
-    return first && /^(?:[↑↓+−-]\s*)?[\d,.]+\s*[KMB万亿千]?\s*%$/i.test(tail) ? first : null;
+    if (node.closest(nonCardSelector) || chartValue(node)) return null;
+    return metricCount(metricText(node));
   }
   function metricValue(doc, name) {
     const expression = metricLabels[name];
     const labels = [...doc.querySelectorAll(`main ${metricSelector.split(',').join(',main ')}`)]
-      .filter(node => visible(node) && expression.test(normalize(node.textContent)) && ![...node.children].some(child => expression.test(normalize(child.textContent))));
+      .filter(node => cardLabel(node, expression));
     const values = [];
     for (const label of labels) {
       let current = label;
-      for (let depth = 0; current && depth < 3; depth++, current = current.parentElement) {
+      for (; current && !current.matches('main,body,section,article,button,[role="button"]'); current = current.parentElement) {
         let found = null, crossedMetric = false;
         for (let sibling = current.nextElementSibling; sibling; sibling = sibling.nextElementSibling) {
           if (!visible(sibling)) continue;
-          if ([sibling, ...sibling.querySelectorAll(metricSelector)].some(node => Object.values(metricLabels).some(re => re.test(normalize(node.textContent))))) { crossedMetric = true; break; }
+          if ([sibling, ...sibling.querySelectorAll(metricSelector)].some(isMetricLabel) || chartValue(sibling)) { crossedMetric = true; break; }
           found = metricNodeValue(sibling);
           if (found) break;
+          // Only empty decoration may be skipped. A placeholder, rate or other
+          // text closes this candidate; later numbers belong to another field.
+          const excludedContent = [sibling, ...sibling.querySelectorAll(nonCardSelector)].some(node => visible(node) && node.matches(nonCardSelector) && !node.matches('svg,canvas'));
+          if (metricText(sibling).trim() || excludedContent) { crossedMetric = true; break; }
         }
         if (found) { values.push(found); break; }
         if (crossedMetric || current.parentElement?.matches('main,body')) break;
@@ -119,25 +139,49 @@
     return parsePeriod(periodText(active));
   }
   const analyticsObservations = new WeakMap();
+  const analyticsMetricNames = ['impressions', 'engagements', 'profileVisits'];
   function analyticsReady(doc, username, pathname, now) {
     if (!/^\/i\/account_analytics(?:\/|$)/.test(pathname) || loggedInUsername(doc) !== username.toLowerCase()) return false;
-    const periodKey = JSON.stringify(selectedPeriod(doc, now));
-    const valuesKey = JSON.stringify(['impressions', 'engagements', 'profileVisits'].map(name => metricValue(doc, name)));
-    const loading = [...doc.querySelectorAll('main[aria-busy="true"],main [aria-busy="true"],main [role="progressbar"],main [data-testid="spinner"]')].some(visible);
+    const period = selectedPeriod(doc, now);
+    const periodKey = JSON.stringify(period);
+    const values = Object.fromEntries(analyticsMetricNames.map(name => [name, metricValue(doc, name)]));
+    const valuesKey = JSON.stringify(values);
+    const loading = [...doc.querySelectorAll('main[aria-busy="true"],main [aria-busy="true"],main [role="progressbar"],main [data-testid="spinner"]')].some(node => {
+      if (!visible(node)) return false;
+      if (node.matches('[aria-busy="true"],[data-testid="spinner"]')) return true;
+      const loadingText = [node.getAttribute('aria-label'), node.getAttribute('aria-valuetext'), node.getAttribute('title'), node.textContent].filter(Boolean).join(' ');
+      if (/\b(?:loading|fetching|refreshing)\b|加载|載入|載入中|正在获取|正在刷新/i.test(loadingText)) return true;
+      // A numeric progressbar without loading semantics can be a permanent
+      // follower-goal gauge; an indeterminate bar still means loading.
+      const value = node.getAttribute('aria-valuenow');
+      return value === null || value.trim() === '' || !Number.isFinite(Number(value));
+    });
     const timestamp = now.getTime();
     let previous = analyticsObservations.get(doc);
     if (!previous || previous.username !== username) {
-      previous = { username, periodKey, valuesKey, acceptedValues: loading ? null : valuesKey, pending: loading, busy: loading, sawLoading: loading, periodChanged: false, stableSince: timestamp };
+      const baseline = period ? Object.fromEntries(analyticsMetricNames.filter(name => values[name]).map(name => [name, values[name].value])) : {};
+      previous = { username, periodKey, valuesKey, lastValues: { ...baseline }, blocked: new Map(),
+        acceptedByPeriod: new Map(!loading && period ? [[periodKey, baseline]] : []),
+        pending: loading, busy: loading, sawLoading: loading, stableSince: timestamp };
       analyticsObservations.set(doc, previous);
       return !loading;
     }
     if (periodKey !== previous.periodKey) {
       previous.periodKey = periodKey;
       previous.pending = true;
-      previous.periodChanged = true;
+      previous.sawLoading = false;
       previous.stableSince = timestamp;
+      if (period) {
+        const accepted = previous.acceptedByPeriod.get(periodKey) || {};
+        previous.blocked = new Map(analyticsMetricNames
+          .filter(name => previous.lastValues[name] !== undefined && !(values[name] && Object.hasOwn(accepted, name) && accepted[name] === values[name].value))
+          .map(name => [name, previous.lastValues[name]]));
+      }
     }
     if (valuesKey !== previous.valuesKey) { previous.valuesKey = valuesKey; previous.stableSince = timestamp; }
+    // Null placeholders do not erase the last displayed value, nor prove that
+    // an unchanged value appearing afterward belongs to the new range.
+    if (period) for (const name of analyticsMetricNames) if (values[name]) previous.lastValues[name] = values[name].value;
     if (loading) {
       previous.pending = true;
       previous.busy = true;
@@ -146,16 +190,24 @@
       return false;
     }
     if (previous.busy) { previous.busy = false; previous.stableSince = timestamp; }
-    // During a range switch, the pill can change before its cards. Without a
-    // loading signal, unchanged old totals are insufficient proof of readiness.
-    if (previous.pending && previous.periodChanged && !previous.sawLoading && valuesKey === previous.acceptedValues) return false;
     if (previous.pending && timestamp - previous.stableSince < 1500) return false;
-    previous.pending = false;
+    // Confirm each metric independently. A changed impression count cannot
+    // authorize an unchanged engagement count from the previous range.
+    if (previous.sawLoading) previous.blocked.clear();
+    else for (const [name, baseline] of previous.blocked) {
+      if (values[name] && values[name].value !== baseline) previous.blocked.delete(name);
+    }
+    previous.pending = previous.blocked.size > 0;
     previous.sawLoading = false;
-    previous.periodChanged = false;
-    previous.acceptedValues = valuesKey;
+    if (period) {
+      const accepted = previous.acceptedByPeriod.get(periodKey) || {};
+      for (const name of analyticsMetricNames) if (values[name] && !previous.blocked.has(name)) accepted[name] = values[name].value;
+      previous.acceptedByPeriod.set(periodKey, accepted);
+      if (previous.acceptedByPeriod.size > 16) previous.acceptedByPeriod.delete(previous.acceptedByPeriod.keys().next().value);
+    }
     return true;
   }
+  function analyticsMetricReady(doc, name) { return !analyticsObservations.get(doc)?.blocked.has(name); }
   function scanAccountMetrics(doc, username, pathname, now = new Date()) {
     const result = {};
     if (!/^\/i\/account_analytics(?:\/|$)/.test(pathname) || loggedInUsername(doc) !== username.toLowerCase()) return result;
@@ -165,7 +217,8 @@
     const period = selectedPeriod(doc, now);
     if (!period) return result;
     const analyticsSummary = { period };
-    for (const name of ['impressions', 'engagements', 'profileVisits']) {
+    for (const name of analyticsMetricNames) {
+      if (!analyticsMetricReady(doc, name)) continue;
       const value = metricValue(doc, name);
       if (value) analyticsSummary[name] = value;
     }
@@ -196,21 +249,11 @@
       }
     }
     if (records.length) return records.slice(0, 31);
+    if (!analyticsMetricReady(doc, 'impressions')) return [];
     const selected = [...doc.querySelectorAll('[aria-selected="true"],[aria-pressed="true"],[data-state="active"],select option:checked')].filter(visible);
     if (!selected.some(node => /^(today|今天|今日)$/.test(normalize(node.textContent)))) return [];
-    const labels = [...doc.querySelectorAll('main span,main p,main h2,main h3')].filter(node => visible(node) && label(node.textContent));
-    const values = [];
-    for (const node of labels) {
-      let parent = node.parentElement;
-      for (let depth = 0; parent && depth < 3; depth++, parent = parent.parentElement) {
-        const leaves = [...parent.querySelectorAll('span,p,h2,h3,strong')].filter(n => visible(n) && !n.querySelector('span,p,h2,h3,strong'));
-        const candidates = leaves.map(n => n.textContent.trim()).filter(text => /^[\d,]+(?:\.\d+)?\s*[KMB万亿千]?$/i.test(text)).map(parseCount).filter(Boolean);
-        if (candidates.length === 1) { values.push(candidates[0]); break; }
-        if (candidates.length > 1) break;
-      }
-    }
-    const unique = [...new Map(values.map(v => [v.value, v])).values()];
-    return unique.length === 1 ? [{ date: today, ...unique[0] }] : [];
+    const value = metricValue(doc, 'impressions');
+    return value ? [{ date: today, ...value }] : [];
   }
   const embeddedPostSelector = '[data-testid="quoteTweet"],[data-testid="card.wrapper"],[role="link"]:not(a)';
   function xPath(href) {
