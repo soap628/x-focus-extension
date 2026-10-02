@@ -83,7 +83,7 @@ test('HUD mounts once in Shadow DOM, updates bars, and keeps edits scoped to the
   assert.equal(root.querySelector('.quest[data-kind="posts"] .track').getAttribute('aria-valuenow'), '1');
   assert.equal(commands.length, 2);
   assert.equal(document.querySelector('main').textContent, 'X page remains here');
-  assert.equal(root.querySelector('.hud').style.width, '232px');
+  assert.equal(root.querySelector('.hud').style.width, '268px');
   assert.equal(root.querySelector('.verified-badge').hidden, true);
   root.querySelector('.assessment-toggle').click();
   assert.equal(root.querySelector('.settings').hidden, true);
@@ -97,14 +97,12 @@ test('HUD mounts once in Shadow DOM, updates bars, and keeps edits scoped to the
   state = reduce(state, { type: 'capture', username: 'soap628', posts: [], blueVerified: true, verifiedFollowers: { value: 2200, approximate: true }, analyticsSummary: { period: { label: '2W', days: 14, start: null, end: null }, impressions: { value: 98000, approximate: true }, engagements: { value: 3200, approximate: true } } }, now);
   hud.update(hudSummary(state, now));
   assert.equal(root.querySelector('.verified-badge').hidden, false);
-  assert.equal(root.querySelector('.verified-followers .metric-value').textContent, '≈2,200');
-  assert.equal(root.querySelector('.views .metric-label').textContent, '2W 曝光');
-  assert.equal(root.querySelector('.views .metric-value').textContent, '≈98k');
-  assert.match(root.querySelector('.views').title, /14 天日均/);
-  assert.equal(root.querySelector('.engagements .metric-value').textContent, '≈3,200');
+  assert.equal(root.querySelector('.verified-followers'), null, 'the streamlined HUD omits analytics while retaining account verification');
+  assert.equal(root.querySelector('.views'), null);
+  assert.equal(root.querySelector('.engagements'), null);
   assert.equal(root.querySelector('.level').textContent, 'LV. 01');
   assert.equal(root.querySelector('.xp-num').textContent, '5 / 100 EXP');
-  assert.match(root.querySelector('.views').title, /不影响等级/);
+  assert.match(root.querySelector('.score-rules').textContent, /粉丝与涨粉仅作观察，不计入经验/);
   assert.equal(root.querySelector('.quest[data-kind="posts"] .quest-reward').textContent, '+5 EXP');
   assert.equal(root.querySelector('.quest[data-kind="replies"] .quest-reward').textContent, '+1 EXP');
   state = reduce(state, { type: 'capture', username: 'soap628', posts: [], blueVerified: false }, now);

@@ -32,11 +32,12 @@ async function loadOptions(language = 'en', filled = false, options = {}) {
     Object.assign(day, { posts: 1, replies: 4, auto: { posts: 1, replies: 4 }, trackedViews: 15, trackedIds: ['123'] });
     day.followers = { value: 1200, approximate: true, at: new Date().toISOString(), source: 'network' };
     day.impressions = { value: 9200, approximate: false, at: new Date().toISOString(), source: 'analytics' };
-    stored.posts['123'] = { id: '123', text: '<img src=x onerror=alert(1)> safe text', views: 12345, approximate: true, observedAt: new Date().toISOString() };
+    stored.posts['123'] = { id: '123', text: '<img src=x onerror=alert(1)> safe text', views: 12345, approximate: true, createdAt: new Date().toISOString(), observedAt: new Date().toISOString() };
     stored.tracking.lastPageAt = new Date().toISOString(); stored.tracking.lastNetworkAt = new Date().toISOString();
   }
   const actions = []; let changed, rejectNext, backupState = { enabled: true, status: 'idle', lastSuccessAt: null, filename: null, error: null };
   let backupResponse;
+  const tabCalls = [];
   const chrome = {
     runtime: { id: 'options-test', async sendMessage(action) {
       actions.push(action);
@@ -50,7 +51,7 @@ async function loadOptions(language = 'en', filled = false, options = {}) {
       return { ok: true, state: structuredClone(stored) };
     } },
     storage: { onChanged: { addListener(listener) { changed = listener; } } },
-    tabs: { create() {}, query: async () => [], sendMessage: async () => ({}) }
+    tabs: { async create(value) { tabCalls.push(['create', value]); }, async update(id, value) { tabCalls.push(['update', id, value]); }, async query(query) { tabCalls.push(['query', query]); return structuredClone(options.xTabs || []); }, async sendMessage(id, value) { tabCalls.push(['sendMessage', id, value]); return options.scanResult || {}; } }
   };
   if (options.noStorageEvents) delete chrome.storage;
   if (options.demo) delete chrome.runtime.id;
@@ -58,7 +59,7 @@ async function loadOptions(language = 'en', filled = false, options = {}) {
   document.querySelector('#local-backup').scrollIntoView = () => { scrolled = true; };
   const context = vm.createContext({ ...core, ...i18n, ...assessment, backupComparableState, document, window, chrome, location: { search: options.demo ? '?demo=1' : '', hash: options.hash || '' }, URLSearchParams, URL, Blob, console, setTimeout: () => 0, clearTimeout() {}, setInterval() {}, structuredClone });
   await vm.runInContext(`(async () => { ${app}\n })()`, context);
-  return { document, window, actions, get stored() { return stored; }, get scrolled() { return scrolled; }, fail(message) { rejectNext = message; },
+  return { document, window, actions, tabCalls, get stored() { return stored; }, get scrolled() { return scrolled; }, fail(message) { rejectNext = message; },
     nextBackup(value) { backupResponse = value; },
     updateBackup(patch) { backupState = { ...backupState, ...patch }; changed?.({ xFocusLocalBackupV1: { newValue: structuredClone(backupState) } }); },
     changeState(action) { stored = core.reduce(stored, action); changed?.({ [core.STORAGE_KEY]: { newValue: structuredClone(stored) } }); },
@@ -93,9 +94,10 @@ test('persisted English renders the full empty dashboard, forms, charts and reco
 test('populated English dashboard translates chart tooltips and posts without injecting post content', async () => {
   const { document } = await loadOptions('en', true);
   assert.ok(uiStrings(document).every(value => !hasChinese.test(value)), uiStrings(document).filter(value => hasChinese.test(value)).join('\n'));
-  assert.match(document.querySelector('#captured-posts').textContent, /12,345 lifetime views/);
+  assert.match(document.querySelector('#captured-posts').textContent, /View post ↗/);
+  assert.doesNotMatch(document.querySelector('#captured-posts').textContent, /lifetime views/);
   assert.equal(document.querySelector('#captured-posts img'), null);
-  assert.match(document.querySelector('#tracked-views-chart title').textContent, /Tracked view increases/);
+  assert.match(document.querySelector('#followers-chart title').textContent, /1,200 Followers/);
   assert.match(document.querySelector('#capture-status').textContent, /Last X data/);
 });
 
@@ -303,4 +305,67 @@ test('restore rejects files above the supported 16 MiB boundary with translated 
   const env = await loadOptions(); await selectBackup(env, restoreFixture(), 16 * 1024 * 1024 + 1);
   assert.match(env.document.querySelector('#toast').textContent, /no larger than 16 MB/);
   assert.notEqual(env.document.querySelector('#import-dialog').open, true);
+});
+
+
+test('daily follower-only editor preserves hidden historical analytics and EXP when correcting followers', async () => {
+  const env = await loadOptions('en', true), { document, window } = env, date = core.dayKey();
+  env.changeState({ type: 'capture', username: 'soap628', verifiedFollowers: { value: 2700, approximate: true }, analyticsSummary: { period: { label: '7D', days: 7, start: null, end: null }, impressions: { value: 239600, approximate: true }, engagements: { value: 5500, approximate: true } } });
+  const before = structuredClone(env.stored);
+  document.querySelector('#record-button').click();
+  assert.equal(document.querySelector('[name="impressions"]'), null);
+  for (const selector of ['#impressions-value', '#impressions-chart', '#tracked-views-chart', '#analytics-button']) assert.equal(document.querySelector(selector), null);
+  assert.doesNotMatch(document.body.textContent, /Daily account impressions|Verified followers|Engagements|Tracked post views/);
+  assert.equal(document.querySelectorAll('#history .heading span').length, 3);
+  document.querySelector('#record-form [name="followers"]').value = '3784';
+  document.querySelector('#record-form [name="note"]').value = 'Keep building.';
+  document.querySelector('#record-form').dispatchEvent(new window.Event('submit', { cancelable: true }));
+  await flush();
+  const saved = env.stored.days[date], action = env.actions.at(-1);
+  assert.equal(action.type, 'daily'); assert.equal(Object.hasOwn(action, 'impressions'), false); assert.equal(Object.hasOwn(action, 'verifiedFollowers'), false);
+  assert.equal(saved.followers.value, 3784); assert.equal(saved.note, 'Keep building.');
+  assert.deepEqual(saved.impressions, before.days[date].impressions);
+  assert.deepEqual(saved.verifiedFollowers, before.days[date].verifiedFollowers);
+  assert.deepEqual(env.stored.analyticsSummary, before.analyticsSummary);
+  assert.equal(saved.trackedViews, before.days[date].trackedViews);
+  assert.deepEqual(env.stored.posts, before.posts);
+  assert.deepEqual(assessment.actionCounts(env.stored), assessment.actionCounts(before));
+  assert.deepEqual(core.validateBackup(JSON.parse(JSON.stringify(env.stored))), env.stored);
+});
+
+test('Return to X reuses the most recent X tab without navigation or duplicate tabs', async () => {
+  const env = await loadOptions('en', true, { xTabs: [{ id: 7, url: 'https://x.com/home', lastAccessed: 1 }, { id: 9, url: 'https://x.com/soap628', lastAccessed: 5 }] });
+  env.document.querySelector('#return-x-button').click(); await flush();
+  assert.deepEqual(JSON.parse(JSON.stringify(env.tabCalls.at(-1))), ['update', 9, { active: true }]);
+  assert.equal(env.tabCalls.some(call => call[0] === 'create'), false);
+  assert.equal(env.tabCalls[0][1].active, undefined, 'the foreground options tab must not hide other X tabs');
+  assert.deepEqual(Array.from(env.tabCalls[0][1].url), ['https://x.com/*', 'https://www.x.com/*']);
+});
+
+test('Scan now finds an open X tab while the options page is in front', async () => {
+  const env = await loadOptions('en', true, { xTabs: [{ id: 17, url: 'https://x.com/soap628', lastAccessed: 10 }], scanResult: { followers: true } });
+  env.document.querySelector('#scan-button').click(); await flush();
+  assert.deepEqual(JSON.parse(JSON.stringify(env.tabCalls.at(-1))), ['sendMessage', 17, { type: 'scan' }]);
+  assert.equal(env.document.querySelector('#toast').textContent, 'Read · followers');
+  assert.equal(env.document.querySelector('#scan-button').disabled, false);
+});
+
+test('Return to X opens home only when no X tab exists and quick goals preserves the settings workflow', async () => {
+  const env = await loadOptions('zh-CN');
+  env.document.querySelector('#return-x-button').click(); await flush();
+  assert.deepEqual(JSON.parse(JSON.stringify(env.tabCalls.at(-1))), ['create', { url: 'https://x.com/home' }]);
+  env.document.querySelector('#goals-button').click();
+  assert.equal(env.document.querySelector('#settings-dialog').open, true);
+  assert.equal(env.document.querySelector('#settings-form [name="username"]').value, 'soap628');
+});
+
+
+test('backup shortcut remains reachable after switching away from its existing hash', async () => {
+  const env = await loadOptions('en', false, { hash: '#backup' }), { document } = env;
+  document.querySelector('[data-tab="growth"]').click();
+  assert.equal(document.querySelector('#today-page').hidden, true);
+  document.querySelector('.quick-actions [href="#backup"]').click();
+  assert.equal(document.querySelector('#today-page').hidden, false);
+  assert.equal(document.querySelector('#growth-page').hidden, true);
+  assert.equal(env.scrolled, true);
 });

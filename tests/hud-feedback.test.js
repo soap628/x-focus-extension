@@ -42,7 +42,7 @@ test('level-up feedback follows each full 100 EXP earned from recorded actions',
   assert.equal(e.root.querySelector('.card').classList.contains('level-up'), true);
   e.hud.destroy();
 });
-test('Analytics period changes update the metric display without moving EXP or creating rewards', () => {
+test('legacy Analytics updates stay out of the focused HUD without moving EXP or creating rewards', () => {
   const e = setup({ posts: 5, replies: 10 });
   assert.equal(e.root.querySelector('.xp-num').textContent, '35 / 100 EXP');
   for (const [label, days, impressions, engagements] of [['2W', 14, 98000, 3200], ['7D', 7, 700000, 100000], ['1Y', 365, 9000000, 800000]]) {
@@ -50,7 +50,8 @@ test('Analytics period changes update the metric display without moving EXP or c
     assert.equal(e.root.querySelector('.xp-num').textContent, '35 / 100 EXP');
     assert.equal(e.root.querySelector('.level').textContent, 'LV. 01');
     assert.equal(e.root.querySelector('.xp-row .fill').style.width, '35%');
-    assert.match(e.root.querySelector('.views .metric-label').textContent, new RegExp(label));
+    assert.equal(e.root.querySelector('.views'), null);
+    assert.equal(e.root.querySelector('.followers .metric-value').textContent, '100k');
     assert.equal(e.root.querySelector('.reward-float').hidden, true);
   }
   assert.equal(e.timeouts.length, 0); e.hud.destroy();

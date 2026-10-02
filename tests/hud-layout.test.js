@@ -17,8 +17,11 @@ function initialState() {
 function setup(saved = initialState(), { deferPreferences = false } = {}) {
   const { document, window } = parseHTML('<html><body><main>X page</main></body></html>');
   window.innerWidth = 1280; window.innerHeight = 800;
-  const context = vm.createContext({ document, window, MutationObserver: class { observe() {} disconnect() {} },
-    requestAnimationFrame: callback => callback(), setInterval: () => 0, clearInterval() {}, setTimeout: () => 0, clearTimeout() {} });
+  const lifecycle = { observers: 0, observations: 0, disconnects: 0, intervals: 0, clearedIntervals: 0 };
+  const context = vm.createContext({ document, window, MutationObserver: class {
+    constructor() { lifecycle.observers++; } observe() { lifecycle.observations++; } disconnect() { lifecycle.disconnects++; }
+  }, requestAnimationFrame: callback => callback(), setInterval: () => ++lifecycle.intervals,
+    clearInterval() { lifecycle.clearedIntervals++; }, setTimeout: () => 0, clearTimeout() {} });
   vm.runInContext(source, context);
   let state = saved;
   const commands = [], pendingPreferences = [];
@@ -54,7 +57,7 @@ function setup(saved = initialState(), { deferPreferences = false } = {}) {
     target.dispatchEvent(event);
     return event;
   }
-  return { hud, root, q, window, document, context, rect, pointer, key, commands, pendingPreferences, state: () => state,
+  return { hud, root, q, window, document, context, rect, pointer, key, commands, pendingPreferences, lifecycle, state: () => state,
     preferences: () => commands.filter(command => command.command === 'hud-preferences'),
     async resize(width, height) { window.innerWidth = width; window.innerHeight = height; window.dispatchEvent(new window.Event('resize')); await tick(); }
   };
@@ -254,6 +257,135 @@ test('rapid mode changes queue saves and stale responses do not overwrite the la
   }
   assert.deepEqual(e.preferences().map(message => message.preferences.mode), ['full', 'mini', 'full']);
   assert.equal(e.state().hudPreferences.mode, 'full');
+  assert.equal(hudSummary(e.state(), now).totalXp, 17);
+  e.hud.destroy();
+});
+
+test('reconnecting a detached HUD retains its shadow nodes, handlers, preferences and progress', async () => {
+  const state = initialState(); state.hudPreferences = { mode: 'full', position: { anchor: 'right', x: 1, y: .4 } };
+  const e = setup(state), host = e.document.getElementById('x-focus-hud'), heading = e.q('.heading');
+  const saved = plain(e.state()), initialRect = e.rect();
+  host.remove();
+  assert.equal(host.isConnected, false);
+  assert.equal(e.hud.ensureConnected(), true);
+  assert.equal(e.document.getElementById('x-focus-hud'), host);
+  assert.equal(host.shadowRoot, e.root);
+  assert.equal(e.q('.heading'), heading);
+  assert.deepEqual(e.rect(), initialRect);
+  assert.deepEqual(plain(e.state()), saved);
+  e.q('.view-nav [data-view="settings"]').click();
+  assert.equal(e.q('.settings').hidden, false, 'the original navigation event handler still opens settings');
+  e.q('.dock-left').click(); await tick();
+  assert.equal(e.preferences().length, 1, 'reattachment does not duplicate the button handler');
+  assert.equal(e.state().hudPreferences.position.anchor, 'left');
+  assert.equal(e.rect().left, 4);
+  assert.deepEqual(plain(e.state().days), saved.days);
+  assert.equal(hudSummary(e.state(), now).totalXp, 17);
+  assert.deepEqual(e.lifecycle, { observers: 1, observations: 1, disconnects: 0, intervals: 1, clearedIntervals: 0 });
+  e.hud.destroy();
+});
+
+test('body replacement reuses the HUD and connected reconciliation performs no page writes', async () => {
+  const e = setup(), host = e.document.getElementById('x-focus-hud'), saved = plain(e.state());
+  const body = e.document.createElement('body'); body.innerHTML = '<main>New X page</main>';
+  e.document.body.replaceWith(body);
+  let appends = 0;
+  const append = body.append;
+  body.append = function (...nodes) { appends++; return append.apply(this, nodes); };
+  assert.equal(e.hud.ensureConnected(), true);
+  assert.equal(host.parentNode, body);
+  assert.equal(host.shadowRoot, e.root);
+  assert.equal(appends, 1);
+  for (let i = 0; i < 20; i++) assert.equal(e.hud.ensureConnected(), false);
+  assert.equal(appends, 1, 'the mutation caused by reattachment cannot produce an append loop');
+  assert.equal(e.document.querySelectorAll('#x-focus-hud').length, 1);
+  assert.equal(e.document.querySelector('main').textContent, 'New X page');
+  assert.deepEqual(plain(e.state()), saved);
+  e.q('.mini-expand').click(); await tick();
+  assert.equal(e.state().hudPreferences.mode, 'full', 'the preserved mini control remains usable');
+  assert.equal(e.lifecycle.observers, 1);
+  assert.equal(e.lifecycle.intervals, 1);
+  e.hud.destroy();
+});
+
+test('reveal always returns to full quests view, resets scrolling and never toggles closed', async () => {
+  const e = setup(), saved = plain(e.state().days), focused = [];
+  e.q('.view-nav [data-view="quests"]').focus = options => focused.push(options);
+  await e.hud.reveal();
+  assert.equal(e.state().hudPreferences.mode, 'full');
+  assert.equal(e.q('.hud').classList.contains('mini'), false);
+  assert.deepEqual(e.preferences().map(message => message.preferences), [{ mode: 'full' }]);
+  for (const view of ['settings', 'inventory-panel', 'assessment-panel']) {
+    e.q(`.view-nav [data-view="${view}"]`).click();
+    assert.equal(e.q('.card').dataset.view, view);
+    e.q('.card').scrollTop = 500;
+    await e.hud.reveal();
+    assert.equal(e.q('.card').dataset.view, 'quests');
+    assert.equal(e.q('.card').scrollTop, 0);
+    assert.equal(e.q('.panel-toolbar').hidden, true);
+    assert.equal(e.q('.view-nav [data-view="quests"]').getAttribute('aria-pressed'), 'true');
+    assert.equal(e.q('.' + view).hidden, true);
+    assert.equal(e.q('.hud').classList.contains('mini'), false);
+  }
+  assert.equal(e.preferences().length, 1, 'repeated reveals do not persist redundant mode changes');
+  assert.equal(focused.length, 4);
+  for (const value of focused) assert.equal(value.preventScroll, true);
+  assert.deepEqual(plain(e.state().days), saved);
+  e.hud.destroy();
+});
+
+test('reveal recovers an offscreen HUD and clamps it after viewport changes without rewriting saved position', async () => {
+  const state = initialState(); state.hudPreferences = { mode: 'full', position: { anchor: 'free', x: 1, y: 1 } };
+  const e = setup(state), saved = plain(e.state().hudPreferences), host = e.document.getElementById('x-focus-hud');
+  e.q('.hud').style.left = '-9999px'; e.q('.hud').style.top = '50000px';
+  e.window.innerWidth = 390; e.window.innerHeight = 500;
+  host.remove();
+  await e.hud.reveal();
+  assert.equal(host.isConnected, true);
+  assert.ok(e.rect().left >= 4 && e.rect().right <= 386);
+  assert.ok(e.rect().top >= 4 && e.rect().bottom <= 496);
+  await e.resize(320, 480);
+  assert.ok(e.rect().left >= 4 && e.rect().right <= 316);
+  assert.ok(e.rect().top >= 4 && e.rect().bottom <= 476);
+  assert.deepEqual(e.state().hudPreferences, saved);
+  assert.equal(e.preferences().length, 0);
+  e.hud.destroy();
+});
+
+test('destroyed HUDs cannot be reattached or revealed and release their observer and interval', async () => {
+  const e = setup(), host = e.document.getElementById('x-focus-hud'), saved = plain(e.state());
+  e.hud.destroy();
+  assert.equal(host.isConnected, false);
+  assert.equal(e.hud.ensureConnected(), false);
+  await e.hud.reveal();
+  e.hud.update(hudSummary(initialState(), now));
+  await e.resize(390, 844);
+  assert.equal(e.document.getElementById('x-focus-hud'), null);
+  assert.equal(e.commands.length, 0);
+  assert.deepEqual(plain(e.state()), saved);
+  assert.equal(e.lifecycle.disconnects, 1);
+  assert.equal(e.lifecycle.clearedIntervals, 1);
+});
+
+test('small viewports can collapse an open subview and reveal quests without recursive preference changes', async () => {
+  const e = setup(); await e.resize(180, 240);
+  for (const view of ['settings', 'inventory-panel']) {
+    await e.hud.reveal();
+    e.q(`.view-nav [data-view="${view}"]`).click();
+    assert.equal(e.q('.' + view).hidden, false);
+    e.q('.minimize').click(); await tick();
+    assert.equal(e.state().hudPreferences.mode, 'mini');
+    assert.equal(e.q('.card').dataset.view, 'quests');
+    assert.equal(e.q('.' + view).hidden, true);
+    assert.ok(e.rect().left >= 4 && e.rect().right <= 176);
+    assert.ok(e.rect().top >= 4 && e.rect().bottom <= 236);
+    assert.equal(e.q('.card').style.maxHeight, '232px');
+    const commands = e.preferences().length;
+    for (let i = 0; i < 5; i++) e.hud.update(hudSummary(e.state(), now));
+    assert.equal(e.preferences().length, commands, 'incoming mini summaries close subviews without saving again');
+    assert.equal(e.q('.card').dataset.view, 'quests');
+  }
+  assert.deepEqual(e.preferences().map(message => message.preferences.mode), ['full', 'mini', 'full', 'mini']);
   assert.equal(hudSummary(e.state(), now).totalXp, 17);
   e.hud.destroy();
 });

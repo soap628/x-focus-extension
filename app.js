@@ -84,10 +84,6 @@ function render() {
   const deltaEl = $('#followers-delta'); deltaEl.className = delta ? delta.value >= 0 ? 'positive' : 'negative' : '';
   deltaEl.textContent = !followers ? t('等待第一笔记录') : lastDate !== date ? t('最近记录于 {date}，今天未更新', { date: lastDate.slice(5) }) : delta ? t('{approx}{value} · 较 {date} 记录', { approx: delta.approximate ? t('约 ') : '', value: `${delta.value >= 0 ? '+' : ''}${number(delta.value)}`, date: delta.previousDate.slice(5) }) : t('已建立起点 · 下次记录可比较');
   $('#followers-source').textContent = followers ? `${t(followers.source === 'manual' ? '手动记录' : followers.source === 'network' ? 'X 页面数据' : '页面读取')} · ${formatTime(followers.at)}` : '';
-  $('#impressions-value').textContent = d.impressions ? `${d.impressions.approximate ? '≈' : ''}${number(d.impressions.value)}` : '—';
-  $('#impressions-meta').textContent = d.impressions ? `${t(d.impressions.source === 'analytics' ? '分析页自动读取' : '手动填写')} · ${formatTime(d.impressions.at)}` : t('打开分析页，选择“今天”后自动读取');
-  $('#tracked-views-value').textContent = d.trackedViews == null ? '—' : `+${number(d.trackedViews)}`;
-  $('#tracked-views-meta').textContent = d.trackedViews == null ? t('只累计已采集帖子的可确认增量') : t('今天跟踪 {count} 条 · 非全账号曝光', { count: d.trackedIds?.length || 0 });
   $('#today-note').textContent = d.note || t('今天哪条内容、哪次对话值得继续？');
   $('#note-button').textContent = t(d.note ? '编辑今日复盘 ↗' : '写下今日复盘 ↗');
   const tracking = state.tracking || newState().tracking;
@@ -105,14 +101,14 @@ function renderGrowth() {
   $('#summary-replies').textContent = number(records.reduce((a, d) => a + d.replies, 0));
   $('#summary-complete').textContent = records.filter(d => progress(d).complete).length;
   $('#follower-trend-meta').textContent = t('已记录 {count} / {range} 天', { count: records.filter(d => d.followers).length, range });
-  chart($('#followers-chart'), dates, 'followers'); chart($('#impressions-chart'), dates, 'impressions'); chart($('#tracked-views-chart'), dates, 'trackedViews');
+  chart($('#followers-chart'), dates, 'followers');
   const rows = dates.toReversed().filter(date => state.days[date]);
-  $('#history').innerHTML = rows.length ? `<div class="history-row heading">${['日期', '发帖 / 回复', '粉丝', '当日曝光'].map(key => `<span>${escape(t(key))}</span>`).join('')}</div>` + rows.map(date => {
-    const d = state.days[date]; return `<button class="history-row" data-date="${date}" aria-label="${escape(t('编辑 {date} 记录', { date }))}"><span>${date.slice(5)} ${progress(d).complete ? '<small>✓</small>' : ''}</span><span>${d.posts} / ${d.replies}</span><span>${d.followers ? (d.followers.approximate ? '≈' : '') + shortNumber(d.followers.value) : '—'}</span><span>${d.impressions ? shortNumber(d.impressions.value) : '—'}</span></button>`;
+  $('#history').innerHTML = rows.length ? `<div class="history-row heading">${['日期', '发帖 / 回复', '粉丝'].map(key => `<span>${escape(t(key))}</span>`).join('')}</div>` + rows.map(date => {
+    const d = state.days[date]; return `<button class="history-row" data-date="${date}" aria-label="${escape(t('编辑 {date} 记录', { date }))}"><span>${date.slice(5)} ${progress(d).complete ? '<small>✓</small>' : ''}</span><span>${d.posts} / ${d.replies}</span><span>${d.followers ? (d.followers.approximate ? '≈' : '') + shortNumber(d.followers.value) : '—'}</span></button>`;
   }).join('') : `<div class="empty-box">${escape(t('记录第一天，开始积累自己的数据。'))}</div>`;
   const posts = Object.values(state.posts).sort((a, b) => b.observedAt.localeCompare(a.observedAt));
   $('#captured-count').textContent = t('{count} 条', { count: posts.length });
-  $('#captured-posts').innerHTML = posts.length ? posts.slice(0, 20).map(post => `<a class="post-card" href="https://x.com/${encodeURIComponent(state.settings.username)}/status/${encodeURIComponent(post.id)}" target="_blank" rel="noopener noreferrer"><p>${escape(post.text)}</p><div><span>${escape(t('{time} 采集', { time: formatTime(post.observedAt) }))}</span><b>${escape(post.views == null ? t('浏览量待更新') : t('{approx}{value} 次累计浏览', { approx: post.approximate ? '≈' : '', value: number(post.views) }))} ↗</b></div></a>`).join('') + (posts.length > 20 ? `<p class="help-text">${escape(t('显示最近 20 条；全部记录随 JSON 备份保存。'))}</p>` : '') : `<div class="empty-box">${escape(t('浏览自己的帖子时，会逐步积累浏览数据。'))}<br>${escape(t('尚未采集的数据不会记成 0。'))}</div>`;
+  $('#captured-posts').innerHTML = posts.length ? posts.slice(0, 20).map(post => `<a class="post-card" href="https://x.com/${encodeURIComponent(state.settings.username)}/status/${encodeURIComponent(post.id)}" target="_blank" rel="noopener noreferrer"><p>${escape(post.text)}</p><div><span>${escape(t('{time} 采集', { time: formatTime(post.observedAt) }))}</span><b>${escape(t('查看原帖 ↗'))}</b></div></a>`).join('') + (posts.length > 20 ? `<p class="help-text">${escape(t('显示最近 20 条；全部记录随 JSON 备份保存。'))}</p>` : '') : `<div class="empty-box">${escape(t('浏览自己的帖子时，会逐步保存帖子记录。'))}<br>${escape(t('尚未采集的数据不会记成 0。'))}</div>`;
 }
 function chart(target, dates, field) {
   const label = t(field === 'followers' ? '粉丝' : field === 'trackedViews' ? '跟踪帖浏览增量' : '曝光');
@@ -126,15 +122,15 @@ function chart(target, dates, field) {
   const x = index => left + index / (dates.length - 1) * (width - left - right);
   const y = value => top + (max - value) / (max - min) * (height - top - bottom);
   let svg = `<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="${escape(t('近 {range} 天{label}趋势，缺失日期不记为零', { range, label }))}">`;
-  for (const value of [min, (min + max) / 2, max]) svg += `<line x1="${left}" y1="${y(value)}" x2="${width - right}" y2="${y(value)}" stroke="#e9ede4" stroke-dasharray="3 4"/><text x="${left - 7}" y="${y(value) + 3}" text-anchor="end" fill="#96a08c" font-size="8">${shortNumber(Math.round(value))}</text>`;
+  for (const value of [min, (min + max) / 2, max]) svg += `<line x1="${left}" y1="${y(value)}" x2="${width - right}" y2="${y(value)}" stroke="#494b37" stroke-dasharray="3 4"/><text x="${left - 7}" y="${y(value) + 3}" text-anchor="end" fill="#a99c78" font-size="8">${shortNumber(Math.round(value))}</text>`;
   values.forEach((metric, i) => {
     if (!metric) return;
     if (field === 'followers') {
-      if (i && values[i - 1]) svg += `<line x1="${x(i - 1)}" y1="${y(values[i - 1].value)}" x2="${x(i)}" y2="${y(metric.value)}" stroke="#6e905b" stroke-width="2"/>`;
-      svg += `<circle cx="${x(i)}" cy="${y(metric.value)}" r="3.5" fill="#547644" stroke="white" stroke-width="1.5"><title>${escape(t('{date}：{approx}{value} {label}', { date: dates[i], approx: metric.approximate ? t('约 ') : '', value: number(metric.value), label }))}</title></circle>`;
+      if (i && values[i - 1]) svg += `<line x1="${x(i - 1)}" y1="${y(values[i - 1].value)}" x2="${x(i)}" y2="${y(metric.value)}" stroke="#ccb276" stroke-width="2"/>`;
+      svg += `<circle cx="${x(i)}" cy="${y(metric.value)}" r="3.5" fill="#c9ad69" stroke="#2b3224" stroke-width="1.5"><title>${escape(t('{date}：{approx}{value} {label}', { date: dates[i], approx: metric.approximate ? t('约 ') : '', value: number(metric.value), label }))}</title></circle>`;
     } else svg += `<rect x="${x(i) - Math.min(8, 100 / range)}" y="${y(metric.value)}" width="${Math.min(16, 200 / range)}" height="${Math.max(1, y(0) - y(metric.value))}" rx="2" fill="#b7c99b"><title>${escape(t('{date}：{approx}{value} {label}', { date: dates[i], approx: metric.approximate ? t('约 ') : '', value: number(metric.value), label }))}</title></rect>`;
   });
-  for (const i of [0, Math.floor((dates.length - 1) / 2), dates.length - 1]) svg += `<text x="${x(i)}" y="${height - 5}" text-anchor="middle" fill="#929e89" font-size="8">${dates[i].slice(5)}</text>`;
+  for (const i of [0, Math.floor((dates.length - 1) / 2), dates.length - 1]) svg += `<text x="${x(i)}" y="${height - 5}" text-anchor="middle" fill="#a99c78" font-size="8">${dates[i].slice(5)}</text>`;
   const list = existing.length;
   target.innerHTML = svg + `</svg><div class="chart-caption">${escape(t('{count} 天有记录 · 空白表示缺失', { count: list }) + (existing.some(m => m.approximate) ? t(' · 含页面近似值') : '') + t(' · 悬停查看数值'))}</div>`;
 }
@@ -146,8 +142,8 @@ function fillRecord(date) {
   const d = state.days[date]; const form = $('#record-form');
   form.elements.date.value = date; form.elements.date.max = today();
   for (const key of ['posts', 'replies']) form.elements[key].value = d?.[key] ?? '';
-  for (const key of ['followers', 'impressions']) form.elements[key].value = d?.[key]?.approximate ? '' : d?.[key]?.value ?? '';
-  recordBaseline = Object.fromEntries(['posts', 'replies', 'followers', 'impressions'].map(key => [key, form.elements[key].value]));
+  for (const key of ['followers']) form.elements[key].value = d?.[key]?.approximate ? '' : d?.[key]?.value ?? '';
+  recordBaseline = Object.fromEntries(['posts', 'replies', 'followers'].map(key => [key, form.elements[key].value]));
   form.elements.note.value = d?.note || ''; clearError('#record-error');
 }
 function openRecord(date = today()) { fillRecord(date); $('#record-dialog').showModal(); }
@@ -227,12 +223,13 @@ async function runBackupCommand(message) {
   } catch (error) { backupInfo = { ...backupInfo, status: message.type === 'backup-show' ? backupInfo.status : 'error', error: error.message }; failure(error); }
   finally { backupBusy = false; renderBackup(); }
 }
-function openBackupSection() {
-  if (location.hash !== '#backup') return;
+function revealBackupSection() {
   $('[data-tab="today"]').click();
   $('#local-backup').scrollIntoView?.({ block: 'start' });
   $('#local-backup').focus?.({ preventScroll: true });
 }
+function openBackupSection() { if (location.hash === '#backup') revealBackupSection(); }
+$('.quick-actions [href="#backup"]').addEventListener('click', event => { event.preventDefault(); revealBackupSection(); });
 $('#language-select').addEventListener('change', async event => {
   const select = event.currentTarget, next = select.value; select.disabled = true;
   try { await save({ type: 'language', language: next }); toast(t('语言已保存')); }
@@ -254,6 +251,7 @@ document.querySelectorAll('[data-adjust]').forEach(button => button.addEventList
   try { await save({ type: 'adjust', kind, amount: Number(amount) }); toast(Number(amount) > 0 ? t('已记录 1 条{kind}', { kind: t(kind === 'posts' ? '发帖' : '回复') }) : t('已减去 1 条')); } catch (error) { failure(error); } finally { button.disabled = false; render(); }
 }));
 $('#settings-button').addEventListener('click', openSettings);
+$('#goals-button').addEventListener('click', openSettings);
 $('#settings-form').addEventListener('submit', async event => {
   event.preventDefault(); const form = event.currentTarget;
   try { await save({ type: 'settings', username: form.elements.username.value, posts: Number(form.elements.posts.value), replies: Number(form.elements.replies.value) }); $('#settings-dialog').close(); toast(t('目标已保存，从今天开始')); } catch (error) { showError('#settings-error', error); }
@@ -265,23 +263,32 @@ $('#record-form').elements.date.addEventListener('change', event => { if (event.
 $('#record-form').addEventListener('submit', async event => {
   event.preventDefault(); const form = event.currentTarget;
   const action = { type: 'daily', date: form.elements.date.value, note: form.elements.note.value };
-  for (const key of ['posts', 'replies', 'followers', 'impressions']) action[key] = form.elements[key].value === '' || form.elements[key].value === recordBaseline[key] ? null : Number(form.elements[key].value);
+  for (const key of ['posts', 'replies', 'followers']) action[key] = form.elements[key].value === '' || form.elements[key].value === recordBaseline[key] ? null : Number(form.elements[key].value);
   try { await save(action); $('#record-dialog').close(); toast(t('记录已保存')); } catch (error) { showError('#record-error', error); }
 });
 $('#profile-button').addEventListener('click', () => { if (!state.settings.username) return openSettings(); const url = `https://x.com/${state.settings.username}`; if (isExtension) chrome.tabs.create({ url }); else window.open(url, '_blank', 'noopener'); });
-$('#analytics-button').addEventListener('click', () => { const url = 'https://x.com/i/account_analytics'; if (isExtension) chrome.tabs.create({ url }); else window.open(url, '_blank', 'noopener'); });
+$('#return-x-button').addEventListener('click', async () => {
+  if (!isExtension) { window.open('https://x.com/home', '_blank', 'noopener'); return; }
+  try {
+    const tabs = await chrome.tabs.query({ lastFocusedWindow: true, url: ['https://x.com/*', 'https://www.x.com/*'] });
+    const tab = tabs.sort((a, b) => Number(b.active) - Number(a.active) || (b.lastAccessed || 0) - (a.lastAccessed || 0))[0];
+    if (tab) await chrome.tabs.update(tab.id, { active: true });
+    else await chrome.tabs.create({ url: 'https://x.com/home' });
+  } catch (error) { failure(error); }
+});
 $('#tracking-button').addEventListener('click', async () => { try { await save({ type: 'tracking', enabled: !state.tracking.enabled }); toast(t(state.tracking.enabled ? '自动统计已恢复' : '自动统计已暂停')); } catch (error) { failure(error); } });
 $('#scan-button').addEventListener('click', async () => {
   if (!state.settings.username) return openSettings();
   if (!isExtension) { toast(t('此处是界面预览。安装扩展后可读取 X 页面。')); return; }
   $('#scan-button').disabled = true;
   try {
-    const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+    const tabs = await chrome.tabs.query({ lastFocusedWindow: true, url: ['https://x.com/*', 'https://www.x.com/*'] });
+    const tab = tabs.sort((a, b) => Number(b.active) - Number(a.active) || (b.lastAccessed || 0) - (a.lastAccessed || 0))[0];
     if (!tab || !/^https:\/\/(www\.)?x\.com\//.test(tab.url || '')) throw new Error('请在当前窗口打开你的 X 个人主页，再点读取页面');
     const result = await chrome.tabs.sendMessage(tab.id, { type: 'scan' });
     if (result?.error) throw new Error(result.error);
     state = await readState(); render();
-    toast(result?.followers || result?.count || result?.analytics ? [t('已读取'), result.followers ? t('粉丝数') : '', result.count ? t('{count} 条帖子', { count: result.count }) : '', result.analytics ? t('{count} 天曝光', { count: result.analytics }) : ''].filter(Boolean).join(' · ') : t('尚无可识别数据。分析页请选择“今天”，或打开本人主页等待加载。'));
+    toast(result?.followers || result?.count ? [t('已读取'), result.followers ? t('粉丝数') : '', result.count ? t('{count} 条帖子', { count: result.count }) : ''].filter(Boolean).join(' · ') : t('尚无可识别数据。请打开本人主页，等待粉丝数加载后重试。'));
   } catch (error) { failure(/receiving end|connection/i.test(error.message) ? new Error('请刷新 X 页面，让新安装的扩展开始工作') : error); } finally { $('#scan-button').disabled = false; }
 });
 $('#export-csv').addEventListener('click', () => download(`x-focus-${today()}.csv`, optionsCsv(csv(state), language()), 'text/csv;charset=utf-8'));

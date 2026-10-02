@@ -1,5 +1,5 @@
 {
   "extensionName": { "message": "X Focus · 起号日常" },
   "extensionDescription": { "message": "X 页面内的奇幻 RPG 任务卡：自动记录发帖、回复与成长，收集旅途宝物。数据保存在本机。" },
-  "actionTitle": { "message": "展开 / 收起 X Focus 任务卡" }
+  "actionTitle": { "message": "显示 X Focus 任务卡" }
 }

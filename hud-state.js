@@ -20,7 +20,7 @@ export function hudSummary(state, now = new Date()) {
     auto: { posts: today.auto?.posts || 0, replies: today.auto?.replies || 0 },
     level: assessment.level, xp: xp % 100, totalXp: xp, assessment, analytics: accountAnalytics(state, now),
     complete: progress(today).complete,
-    followers: followers ? { value: followers.value, approximate: followers.approximate, date: followerDate } : null,
+    followers: followers ? { value: followers.value, approximate: followers.approximate, date: followerDate, at: followers.at || null } : null,
     verifiedFollowers: latestMetric(state, 'verifiedFollowers', date),
     blueVerified: typeof state.account?.blueVerified?.value === 'boolean' ? { value: state.account.blueVerified.value, source: state.account.blueVerified.source || null, at: state.account.blueVerified.at || null } : null,
     delta: delta ? { value: delta.value, approximate: delta.approximate, from: delta.previousDate } : null,

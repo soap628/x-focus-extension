@@ -69,7 +69,7 @@ test('switching HUD language preserves draft goal inputs and localizes all rende
   assert.equal(q('input[name="posts"]').value, '17');
   assert.equal(q('.settings-toggle').getAttribute('aria-label'), 'Quest settings');
   assert.equal(q('.verified-badge').getAttribute('aria-label'), 'X blue verified');
-  assert.equal(q('.views .metric-label').textContent, '2W Impressions');
+  assert.equal(q('.views'), null);
   assert.equal(q('.status').textContent, 'Capture connected');
   assert.match(q('.connection-message').textContent, /connected/i);
   assert.equal(q('.relic-grid').children.length, 12);
@@ -84,8 +84,8 @@ test('switching HUD language preserves draft goal inputs and localizes all rende
   assert.match(q('.score-rules').textContent, /Every 100 EXP|every 100 EXP/);
   assert.match(q('.score-rules').textContent, /no level cap/);
   assert.equal(q('.xp-num').textContent, '0 / 100 EXP');
-  assert.match(q('.views').title, /14-day average/);
-  assert.match(q('.views').title, /does not affect level/);
+  assert.match(q('.score-rules').textContent, /Followers and follower growth do not award EXP/);
+  assert.equal(q('.view-nav [data-view="assessment-panel"]').getAttribute('aria-pressed'), 'true');
   assert.equal(e.document.querySelector('main').textContent, 'X remains untouched'); e.hud.destroy();
 });
 

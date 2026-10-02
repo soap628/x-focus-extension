@@ -6,7 +6,8 @@
   let collection = null, collectionQueued = false, analyticsRetryTimer = null, analyticsRetries = 0;
   const ANALYTICS_RETRY_MS = 2000, ANALYTICS_RETRY_LIMIT = 3, CAPTURE_SIGNATURE_TTL_MS = 30000;
   const inFlight = new Set();
-  let hud = null, summary = null;
+  let hud = null, summary = null, lastRoute = routeKey();
+  function routeKey() { return location.pathname + (location.search || '') + (location.hash || ''); }
   const publishConfirmation = globalThis.XFocusPublishConfirmation?.mount({ document,
     username: () => observerConfig().enabled ? config.username : '',
     onConfirmed: async post => {
@@ -31,7 +32,10 @@
   function showConnection() { hud?.setConnection?.(connection()); }
   function showSummary(next) { if (next) { summary = next; hud?.update(next); } showConnection(); }
   function mountHUD() {
-    if (hud || !globalThis.XFocusHUD) return;
+    // X may replace its body or remove injected nodes during client navigation.
+    // Reattach the existing view so its model, preferences and listeners survive.
+    if (hud) { hud.ensureConnected?.(); return; }
+    if (!globalThis.XFocusHUD) return;
     hud = XFocusHUD.mount({ onCommand: async action => {
       if (action.command === 'scan-now') {
         clearAnalyticsRetry();
@@ -187,6 +191,14 @@
     } catch (error) { return { error: error.message, code: error.code || (stopped ? 'stopped' : 'config') }; }
   }
   function schedule(renewRetries = false) {
+    mountHUD();
+    const nextRoute = routeKey();
+    if (nextRoute !== lastRoute) {
+      lastRoute = nextRoute;
+      lastSignature = ''; lastSignatureAt = 0;
+      clearAnalyticsRetry();
+      hud?.layout?.();
+    }
     if (stopped) return;
     if (readIdentity()) publishConfig();
     publishConfirmation?.scan();
@@ -198,7 +210,7 @@
     setTimeout(() => { pending = false; lastRun = Date.now(); void collect(); }, Math.max(350, interval - (Date.now() - lastRun)));
   }
   chrome.runtime.onMessage.addListener((message, sender, respond) => {
-    if (message.type === 'hud-toggle') { mountHUD(); hud?.toggle(); respond({ ok: true }); return; }
+    if (message.type === 'hud-toggle') { mountHUD(); void hud?.reveal?.(); respond({ ok: true }); return; }
     if (message.type === 'config') { configure(message.config); showSummary(message.hud); schedule(); respond({ ok: true }); return; }
     if (message.type !== 'scan') return;
     collect(true).then(respond); return true;
@@ -209,6 +221,11 @@
     readIdentity(); publishConfig(true); schedule(true);
     if (!stopped && document.visibilityState === 'visible') void send({ type: 'hud' }).then(response => configure(response.config)).catch(() => {});
   });
+  // Observe SPA navigation without replacing X's History methods. DOM mutations
+  // cover pushState routes on older browsers; the Navigation API also covers
+  // quiet same-document transitions when supported by Edge.
+  for (const event of ['popstate', 'hashchange', 'pageshow']) window.addEventListener(event, () => schedule(true));
+  window.navigation?.addEventListener?.('currententrychange', () => schedule(true));
   document.addEventListener('DOMContentLoaded', () => { mountHUD(); schedule(); }, { once: true });
   if (document.readyState !== 'loading') mountHUD();
   send({ type: 'config' }).then(response => { configure(response.config); schedule(); }).catch(() => {});

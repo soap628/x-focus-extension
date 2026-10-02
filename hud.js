@@ -1,5 +1,5 @@
 (() => {
-  const WIDTH = 232, MINI_WIDTH = 184, GAP = 16, EDGE = 4, SNAP = 24;
+  const WIDTH = 268, MINI_WIDTH = 208, GAP = 16, EDGE = 4, SNAP = 24;
   const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
   function resolveLayout({ viewportWidth, viewportHeight, width, height, position, bounds }) {
     const vw = Math.max(1, viewportWidth || 1), vh = Math.max(1, viewportHeight || 1);
@@ -28,6 +28,8 @@
     shadow.innerHTML = [
       '<style>' + css + '</style><aside class="hud" data-i18n-aria="hud"><div class="card" hidden>',
       '<div class="heading" tabindex="0" data-i18n-aria="dragHint"><span class="brand-mark">' + emblem + '</span><b data-i18n="title"></b><div class="controls"><button class="capture-indicator" type="button" data-i18n-aria="statusButton"><span class="live"></span></button><button class="icon settings-toggle" data-i18n-aria="settings" aria-expanded="false">' + gear + '</button><button class="icon minimize" data-i18n-aria="collapse"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8h10"/></svg></button></div></div>',
+      '<nav class="view-nav" data-i18n-aria="navigation"><button type="button" data-view="quests" data-i18n="navQuests" aria-pressed="true"></button><button type="button" data-view="assessment-panel" data-i18n="navGrowth" aria-pressed="false"></button><button type="button" data-view="inventory-panel" aria-pressed="false"><span data-i18n="navLoot"></span><span class="nav-loot" hidden></span></button><button type="button" data-view="settings" data-i18n="navSettings" aria-pressed="false"></button></nav>',
+      '<div class="panel-toolbar" hidden><button class="back-quests" type="button" data-i18n="backQuests"></button><span class="current-view"></span></div>',
       '<div class="hero">' + crest + '<div class="identity"><div class="hero-line"><span class="name"></span><span class="verified-badge" data-i18n-aria="verified" hidden>✓</span></div><div class="rank"></div><button class="level-row assessment-toggle" data-i18n-aria="assessmentButton" aria-expanded="false"><span class="level">LV. 01</span><span class="rank-stars" aria-hidden="true">✧</span><span class="level-detail" data-i18n="details"></span></button></div><span class="hero-spark" aria-hidden="true">✧</span></div>',
       '<div class="xp-row"><span data-i18n="growth"></span><div class="track" role="progressbar" data-i18n-aria="growthProgress" aria-valuemin="0" aria-valuemax="100"><div class="fill"></div></div><span class="xp-num"></span></div>',
       '<section class="assessment-panel" hidden><div class="assessment-heading"><h3 data-i18n="actionGrowth"></h3><span class="assessment-score"></span></div><p class="assessment-coverage"></p><div class="dimensions"></div><p class="assessment-xp"></p><details class="score-rules"><summary data-i18n="scoringRules"></summary><p data-i18n="rule1"></p><p data-i18n="rule2"></p><p data-i18n="rule3"></p></details></section>',
@@ -35,16 +37,17 @@
       '<div class="quest" data-kind="posts" style="--bar:#d94134;--bar-dark:#6b130e;--glow:#da31273d"><div class="quest-line"><span class="quest-icon">' + quill + '</span><span class="quest-name" data-i18n="posts"></span><span class="quest-reward">+5 EXP</span><span class="count"></span></div><div class="track" role="progressbar" data-i18n-aria="postsToday" aria-valuemin="0"><div class="fill"></div></div></div>',
       '<div class="quest" data-kind="replies" style="--bar:#398fcb;--bar-dark:#123956;--glow:#328bdd40"><div class="quest-line"><span class="quest-icon">' + reply + '</span><span class="quest-name" data-i18n="replies"></span><span class="quest-reward">+1 EXP</span><span class="count"></span></div><div class="track" role="progressbar" data-i18n-aria="repliesToday" aria-valuemin="0"><div class="fill"></div></div></div>',
       '<div class="completion" hidden><span class="seal">' + emblem + '</span><span data-i18n="completed"></span></div>',
-      '<div class="metrics"><div class="followers"><span class="metric-label"></span><span class="metric-value">—</span><span class="delta"></span></div><div class="verified-followers"><span class="metric-label" data-i18n="verifiedFollowers"></span><span class="metric-value">—</span></div><div class="views"><span class="metric-label"></span><span class="metric-value">—</span></div><div class="engagements"><span class="metric-label"></span><span class="metric-value">—</span></div></div>',
+      '<div class="metrics"><div class="followers"><div class="follower-heading"><span class="metric-label"></span><a class="follower-profile" href="https://x.com/" data-i18n="viewProfile"></a></div><div class="follower-number"><span class="metric-value">—</span><span class="delta"></span></div><p class="follower-baseline"></p><p class="follower-freshness"></p></div></div>',
+      '<button class="mini-expand" type="button"><span data-i18n="openPanel"></span><span class="mini-loot" hidden></span><span aria-hidden="true">↗</span></button>',
       '<button class="treasure-strip inventory-toggle" data-i18n-aria="collectionButton" aria-expanded="false"><img class="treasure-chest" alt=""><span class="treasure-copy"><b data-i18n="collection"></b><span class="collection-count"></span></span><span class="chest-count"></span><span class="treasure-chevron" aria-hidden="true">›</span></button>',
       '<section class="inventory-panel" hidden><div class="inventory-intro"><span class="inventory-caption"></span><span class="collection-total"></span></div><button class="open-chest" type="button"></button><p class="next-reward"></p><div class="relic-grid"></div><div class="item-detail" role="status" hidden><span class="item-emblem" aria-hidden="true"></span><div class="item-rarity"></div><h3 class="item-name"></h3><p class="item-description"></p><span class="item-count"></span></div><p class="loot-help" data-i18n="lootRules"></p></section>',
-      '<div class="footer"><span class="date"></span><button class="connection-toggle" data-i18n-aria="statusButton" aria-expanded="false"><span class="live"></span><span class="status"></span></button></div>',
-      '<section class="connection-panel" hidden><h3 data-i18n="statusButton"></h3><p class="connection-message"></p><dl><dt data-i18n="boundAccount"></dt><dd class="connection-account"></dd><dt data-i18n="latestData"></dt><dd class="connection-time"></dd><dt data-i18n="detectedToday"></dt><dd class="connection-actions"></dd><dt data-i18n="ownBlue"></dt><dd class="connection-verified"></dd></dl><button class="scan-now save" type="button" data-i18n="scan"></button><p class="help" data-i18n="captureHelp"></p></section>',
+      '<section class="connection-panel" hidden><h3 data-i18n="statusButton"></h3><p class="connection-message"></p><dl><dt data-i18n="boundAccount"></dt><dd class="connection-account"></dd><dt data-i18n="latestData"></dt><dd class="connection-time"></dd><dt data-i18n="detectedToday"></dt><dd class="connection-actions"></dd><dt data-i18n="ownBlue"></dt><dd class="connection-verified"></dd><dt data-i18n="extensionVersion"></dt><dd class="extension-version"></dd></dl><button class="scan-now save" type="button" data-i18n="scan"></button><p class="help" data-i18n="captureHelp"></p></section>',
       '<section class="settings" hidden><h3 data-i18n="dailySettings"></h3><form><div class="fields"><label><span data-i18n="postGoal"></span><input name="posts" type="number" min="0" max="1000" step="1" required></label><label><span data-i18n="replyGoal"></span><input name="replies" type="number" min="0" max="1000" step="1" required></label></div><button class="save" type="submit" data-i18n="save"></button></form>',
       '<label class="language-field"><span data-i18n="language"></span><select class="language-select" data-i18n-aria="language"><option value="zh-CN">简体中文</option><option value="en">English</option></select></label>',
       '<div class="panel-position"><span data-i18n="panelPosition"></span><div class="position-controls"><button class="dock-left" type="button" data-i18n="dockLeft"></button><button class="dock-right" type="button" data-i18n="dockRight"></button><button class="position-auto" type="button" data-i18n="autoPosition"></button></div><p class="layout-help" data-i18n="layoutHelp"></p></div>',
       '<div class="correct"><span data-i18n="correctPosts"></span><button data-kind="posts" data-amount="-1" data-i18n-aria="postsMinus">−</button><button data-kind="posts" data-amount="1" data-i18n-aria="postsPlus">+</button></div><div class="correct"><span data-i18n="correctReplies"></span><button data-kind="replies" data-amount="-1" data-i18n-aria="repliesMinus">−</button><button data-kind="replies" data-amount="1" data-i18n-aria="repliesPlus">+</button></div>',
-      '<div class="settings-links"><a class="profile-link" href="https://x.com/" target="_blank" rel="noopener noreferrer" data-i18n="profileLink"></a><a href="https://x.com/i/account_analytics" target="_blank" rel="noopener noreferrer" data-i18n="analyticsLink"></a></div><button class="save backup-open" type="button" data-i18n="localBackup"></button><button class="text-btn tracking-toggle" type="button"></button><p class="help" data-i18n="settingsHelp"></p></section>',
+      '<div class="settings-links"><a class="profile-link" href="https://x.com/" data-i18n="profileLink"></a><button class="status-shortcut" type="button" data-i18n="statusButton"></button></div><button class="save backup-open" type="button" data-i18n="localBackup"></button><button class="text-btn tracking-toggle" type="button"></button><p class="help" data-i18n="settingsHelp"></p></section>',
+      '<div class="footer"><span class="date"></span><button class="connection-toggle" data-i18n-aria="statusButton" aria-expanded="false"><span class="live"></span><span class="status"></span></button></div>',
       '<div class="error" role="alert" hidden></div><div class="toast" role="status" hidden></div><div class="reward-float" role="status" hidden></div></div><button class="orb" data-i18n-aria="expand" hidden><span class="orb-emblem">' + emblem + '</span><span class="orb-level">01</span><span class="orb-loot" hidden></span><i></i></button></aside>'
     ].join('');
     (document.body || document.documentElement).append(host);
@@ -54,7 +57,7 @@
     let preferenceQueue = Promise.resolve(), preferenceRevision = 0, destroyed = false;
     let selectedItem = null, chestBusy = false, scanBusy = false, languageBusy = false;
     let currentError = null, toastKey = null, currentReward = null, inventorySignature = '';
-    let connection = { status: 'connecting', code: 'config' };
+    let connection = { status: 'connecting', code: 'config' }, activeView = 'quests';
     const lang = () => model?.language === 'en' ? 'en' : 'zh-CN';
     const t = (key, params) => globalThis.XFocusI18n.t(lang(), key, params);
     const compactNumber = n => Math.abs(n) < 10000 ? n.toLocaleString('en-US') : Math.abs(n) < 1e6 ? (n / 1000).toFixed(1).replace(/\.0$/, '') + 'k' : (n / 1e6).toFixed(1).replace(/\.0$/, '') + 'm';
@@ -69,6 +72,7 @@
       shadow.querySelectorAll('[data-i18n]').forEach(node => { node.textContent = t(node.getAttribute('data-i18n')); });
       shadow.querySelectorAll('[data-i18n-aria]').forEach(node => { node.setAttribute('aria-label', t(node.getAttribute('data-i18n-aria'))); });
       $('.language-select').value = lang();
+      renderNavigation();
       if (currentError) $('.error').textContent = translatedError(currentError);
       if (toastKey) $('.toast').textContent = t(toastKey);
       if (currentReward) $('.reward-float').textContent = currentReward.level ? t('levelUp', { level: currentReward.level }) : '+' + currentReward.gain + ' EXP';
@@ -94,13 +98,14 @@
       const width = Math.min(mini ? MINI_WIDTH : WIDTH, Math.max(1, vw - EDGE * 2));
       hud.style.width = width + 'px'; card.style.width = '100%'; card.style.right = '';
       card.style.maxHeight = Math.max(1, vh - EDGE * 2) + 'px'; card.style.overflowY = 'auto'; card.style.overflowX = 'hidden';
-      $('.heading b').textContent = t(mini ? 'quests' : 'title');
+      $('.heading b').textContent = mini ? 'X FOCUS' : t('title');
       $('.heading').title = t('dragHint');
       $('.settings-toggle').hidden = mini;
       $('.minimize').setAttribute('aria-label', t(mini ? 'fullMode' : 'miniMode'));
       $('.minimize').setAttribute('aria-expanded', String(!mini));
       $('.minimize').title = t(mini ? 'fullMode' : 'miniMode');
       $('.minimize path').setAttribute('d', mini ? 'M3 6 8 11 13 6M3 2 8 7 13 2' : 'M3 8h10');
+      $('.mini-expand').setAttribute('aria-expanded', String(!mini));
       const height = card.getBoundingClientRect().height || (mini ? 140 : 620);
       let pos = resolveLayout({ viewportWidth: vw, viewportHeight: vh, width, height, position: prefs.position, bounds: (getBounds || defaultBounds)() });
       if (drag?.moved) pos = { ...pos, left: clamp(drag.left, EDGE, Math.max(EDGE, vw - pos.width - EDGE)), top: clamp(drag.top, EDGE, Math.max(EDGE, vh - pos.height - EDGE)), anchor: 'free' };
@@ -149,28 +154,13 @@
       $('.connection-time').textContent = time && Number.isFinite(Date.parse(time)) ? new Intl.DateTimeFormat(lang(), { timeZone: 'Asia/Shanghai', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }).format(new Date(time)) : t('neverReceived');
       $('.connection-actions').textContent = t('autoActions', { posts: model?.auto?.posts || 0, replies: model?.auto?.replies || 0 });
       $('.connection-verified').textContent = t(model?.blueVerified ? (model.blueVerified.value ? 'isVerified' : 'notVerified') : 'unknownVerified');
+      $('.extension-version').textContent = globalThis.chrome?.runtime?.getManifest?.().version || '0.10.0';
       $('.scan-now').textContent = t(scanBusy ? 'scanning' : 'scan');
       const pageFallback = ['handshake-timeout', 'observer-detached'].includes(code);
       $('.scan-now').disabled = scanBusy || !model?.enabled || (!pageFallback && ['paused', 'account-mismatch', 'waiting-account', 'error', 'connecting'].includes(status));
       $('.scan-now').setAttribute('aria-busy', String(scanBusy));
     }
     function setConnection(next) { connection = next || { status: 'connecting', code: 'config' }; renderConnection(); }
-    function periodLabel(dimension) {
-      const label = dimension.period?.label || '';
-      if (lang() !== 'en') return label;
-      if (label === '今天' || label.toLowerCase() === 'today') return t('today');
-      return /[\u3400-\u9fff]/.test(label) ? dimension.period.days + 'D' : label;
-    }
-    function sampled(dimension) { return /已采集/.test(dimension.sourceLabel || '') || dimension.period?.label === '近 28 天内已采集日'; }
-    function dimensionSource(dimension) {
-      if (['followers', 'verifiedFollowers'].includes(dimension.key)) {
-        const date = (dimension.sourceLabel || '').match(/\d{4}-\d{2}-\d{2}/)?.[0] || dimension.at?.slice(0, 10) || '';
-        return t('snapshot', { date });
-      }
-      if (sampled(dimension)) return t('sampledDays', { days: dimension.period?.days || 0 });
-      if (dimension.period) return t('periodDays', { label: periodLabel(dimension), days: dimension.period.days });
-      return t('unknown');
-    }
     function renderDimensions(dimensions) {
       const list = $('.dimensions'); list.replaceChildren();
       for (const dimension of dimensions) {
@@ -189,6 +179,7 @@
       const countText = t('collectionCount', { owned: rewards.totalOwned, total: rewards.totalItems });
       $('.collection-count').textContent = countText; $('.collection-total').textContent = rewards.totalOwned + ' / ' + rewards.totalItems;
       $('.chest-count').textContent = String(rewards.pending); $('.chest-count').hidden = !rewards.pending;
+      for (const selector of ['.nav-loot', '.mini-loot']) { $(selector).textContent = String(rewards.pending); $(selector).hidden = !rewards.pending; $(selector).title = t('pending', { count: rewards.pending }); }
       $('.treasure-strip').classList.toggle('has-chest', rewards.pending > 0);
       $('.treasure-strip').title = rewards.pending ? t('chestReady') + ' · ' + t('pending', { count: rewards.pending }) : t('noChest');
       $('.inventory-caption').textContent = t(rewards.pending ? 'chestReady' : 'chestIdle');
@@ -277,31 +268,21 @@
       }
       const active = ['posts', 'replies'].filter(kind => next.goals[kind] > 0);
       $('.quest-total').textContent = active.filter(kind => next[kind] >= next.goals[kind]).length + ' / ' + active.length; $('.completion').hidden = !next.complete;
-      const followers = next.followers, views = next.views;
+      const followers = next.followers;
       $('.followers .metric-value').textContent = followers ? approximate(followers) + compactNumber(followers.value) : '—';
       $('.followers .metric-label').textContent = t(followers && followers.date !== next.date ? 'lastFollowers' : 'followers');
       $('.followers').title = followers ? t('followersHint', { date: followers.date, value: approximate(followers) + followers.value }) + (next.delta ? ' · ' + t('deltaHint', { date: next.delta.from, value: (next.delta.value >= 0 ? '+' : '') + next.delta.value }) : '') : t('profileHint');
       $('.delta').textContent = next.delta ? approximate(next.delta) + (next.delta.value >= 0 ? '+' : '') + compactNumber(next.delta.value) : '';
       $('.delta').classList.toggle('negative', next.delta?.value < 0);
-      const verified = next.verifiedFollowers;
-      $('.verified-followers .metric-value').textContent = verified ? approximate(verified) + compactNumber(verified.value) : '—';
-      $('.verified-followers').title = verified ? t('verifiedFansHint', { date: verified.date, value: approximate(verified) + verified.value }) : t('verifiedFansEmpty');
-      const exposure = next.analytics?.impressions, engagement = next.analytics?.engagements;
-      for (const [selector, dimension, key] of [['.views', exposure, 'impressions'], ['.engagements', engagement, 'engagements']]) {
-        const hasPeriod = dimension?.value != null && dimension.period, label = hasPeriod ? periodLabel(dimension) : '';
-        const short = hasPeriod && !sampled(dimension) && label.length <= 4;
-        $(selector + ' .metric-label').textContent = hasPeriod ? (short ? label + ' ' : '') + t(key) + (!short ? ' · ' + t('average') : '') : t(key);
-        const value = hasPeriod ? (short ? dimension.totalValue : Math.round(dimension.value)) : null;
-        $(selector + ' .metric-value').textContent = value != null ? approximate(dimension) + compactNumber(value) : '—';
-        $(selector).title = hasPeriod ? t('periodHint', { period: dimensionSource(dimension), value: approximate(dimension) + Math.round(dimension.value).toLocaleString('en-US'), total: dimension.totalValue.toLocaleString('en-US') }) : t('analyticsEmpty', { metric: t(key) });
-      }
-      if (exposure?.value == null && views) {
-        $('.views .metric-label').textContent = t(views.kind === 'tracked' ? 'tracked' : 'todayImpressions');
-        $('.views .metric-value').textContent = approximate(views) + compactNumber(views.value); $('.views').title = t(views.kind === 'tracked' ? 'trackedHint' : 'todayImpressionsHint');
-      }
+      $('.follower-baseline').textContent = next.delta ? t('growthSince', { date: next.delta.from }) : t(followers ? 'baselineSaved' : 'profileHint');
+      const followerTime = followers?.at;
+      const lastRead = followerTime && Number.isFinite(Date.parse(followerTime)) ? new Intl.DateTimeFormat(lang(), { timeZone: 'Asia/Shanghai', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }).format(new Date(followerTime)) : followers?.date;
+      $('.follower-freshness').textContent = followers ? t('followersUpdated', { time: lastRead }) : t('followersEmpty');
+      $('.follower-freshness').classList.toggle('stale', !!followers && followers.date !== next.date);
       $('.date').textContent = next.date.slice(5).replace('-', ' / ');
       $('.tracking-toggle').textContent = t(next.enabled ? 'pause' : 'resume');
       $('.profile-link').href = 'https://x.com/' + (next.username || '');
+      $('.follower-profile').href = $('.profile-link').href;
       $('.orb-level').textContent = next.complete ? '✓' : String(next.level).padStart(2, '0'); $('.orb i').style.width = assessment.progress / 100 * 24 + 'px';
       renderConnection(); renderInventory(); feedback(previous, next); layout();
     }
@@ -314,18 +295,33 @@
       } catch (error) { currentError = error; $('.error').textContent = translatedError(error); $('.error').hidden = false; return null; }
     }
     const panelPairs = [['settings', 'settings-toggle'], ['assessment-panel', 'assessment-toggle'], ['connection-panel', 'connection-toggle'], ['inventory-panel', 'inventory-toggle']];
+    const viewLabels = { quests: 'navQuests', settings: 'navSettings', 'assessment-panel': 'navGrowth', 'inventory-panel': 'navLoot', 'connection-panel': 'statusButton' };
+    function renderNavigation() {
+      shadow.querySelectorAll('.view-nav [data-view]').forEach(button => button.setAttribute('aria-pressed', String(button.dataset.view === activeView)));
+      $('.panel-toolbar').hidden = activeView === 'quests';
+      $('.current-view').textContent = t(viewLabels[activeView]);
+      $('.card').dataset.view = activeView;
+    }
     function panel(name, open) {
       for (const [selector, button] of panelPairs) {
         if (selector === name || open) {
           const show = selector === name && open; $('.' + selector).hidden = !show; $('.' + button).setAttribute('aria-expanded', String(show));
         }
       }
+      if (open) activeView = name;
+      else if (activeView === name) activeView = 'quests';
+      renderNavigation();
       if (name === 'settings' && open && model) for (const kind of ['posts', 'replies']) $('input[name="' + kind + '"]').value = model.goals[kind];
+      $('.card').scrollTop = 0;
       layout();
     }
     function closePanels() { for (const [name] of panelPairs) panel(name, false); }
     for (const [name, button] of panelPairs) $('.' + button).addEventListener('click', () => panel(name, $('.' + name).hidden));
+    shadow.querySelectorAll('.view-nav [data-view]').forEach(button => button.addEventListener('click', () => button.dataset.view === 'quests' ? closePanels() : panel(button.dataset.view, true)));
+    $('.back-quests').addEventListener('click', () => { closePanels(); $('.view-nav [data-view="quests"]').focus(); });
+    $('.status-shortcut').addEventListener('click', () => panel('connection-panel', true));
     const toggleMode = () => savePreferences({ mode: preferences().mode === 'mini' ? 'full' : 'mini' });
+    $('.mini-expand').addEventListener('click', () => reveal());
     $('.capture-indicator').addEventListener('click', async () => { if (preferences().mode === 'mini') await savePreferences({ mode: 'full' }); if (!destroyed) panel('connection-panel', true); });
     $('.minimize').addEventListener('click', toggleMode);
     $('.orb').addEventListener('click', () => savePreferences({ mode: 'full' }));
@@ -406,8 +402,22 @@
     window.addEventListener('resize', scheduleLayout);
     const observer = new MutationObserver(scheduleLayout); observer.observe(document.body || document.documentElement, { childList: true, subtree: true });
     const interval = setInterval(layout, 2500);
+    function ensureConnected() {
+      if (destroyed || host.isConnected) return false;
+      (document.body || document.documentElement).append(host);
+      layout();
+      return true;
+    }
+    async function reveal() {
+      if (destroyed) return;
+      ensureConnected(); closePanels();
+      if (preferences().mode !== 'full') await savePreferences({ mode: 'full' });
+      if (destroyed) return;
+      $('.card').scrollTop = 0; layout();
+      $('.view-nav [data-view="quests"]').focus({ preventScroll: true });
+    }
     translateStatic(); renderConnection();
-    return { update, layout, setConnection, toggle: toggleMode, destroy() { finishDrag(null, false); destroyed = true; observer.disconnect(); clearInterval(interval); clearTimeout(toastTimer); clearTimeout(rewardTimer); window.removeEventListener('resize', scheduleLayout); window.removeEventListener('pointermove', moveDrag, true); window.removeEventListener('pointerup', endDrag, true); window.removeEventListener('pointercancel', cancelDrag, true); window.removeEventListener('blur', cancelDrag); host.remove(); } };
+    return { update, layout, setConnection, ensureConnected, reveal, toggle: toggleMode, destroy() { finishDrag(null, false); destroyed = true; observer.disconnect(); clearInterval(interval); clearTimeout(toastTimer); clearTimeout(rewardTimer); window.removeEventListener('resize', scheduleLayout); window.removeEventListener('pointermove', moveDrag, true); window.removeEventListener('pointerup', endDrag, true); window.removeEventListener('pointercancel', cancelDrag, true); window.removeEventListener('blur', cancelDrag); host.remove(); } };
   }
   globalThis.XFocusHUD = { mount, placement, resolveLayout };
 })();

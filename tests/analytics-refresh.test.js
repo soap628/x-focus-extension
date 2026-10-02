@@ -100,7 +100,7 @@ test('same-range missing and null metrics retain the available snapshot until a 
   assert.equal(state.analyticsSummary.impressions.value, 93400);
 });
 
-test('a valid Today range remains visible through storage, HUD summary and actual HUD rendering', () => {
+test('a valid legacy Today range is retained in storage while the focused HUD omits analytics', () => {
   let state = reduce(setup(), capture({ verifiedFollowers: count(2400, true), analyticsSummary: { period: { label: 'Today', days: 1, start: '2026-10-01', end: '2026-10-01' }, impressions: count(93400, true), engagements: count(4100, true) } }), start);
   state.hudPreferences.mode = 'full';
   const summary = hudSummary(state, start);
@@ -114,9 +114,10 @@ test('a valid Today range remains visible through storage, HUD summary and actua
   const hud = context.XFocusHUD.mount({ getBounds: () => ({ left: 410, right: 1510 }) });
   hud.update(summary);
   const root = document.querySelector('#x-focus-hud').shadowRoot;
-  assert.match(root.querySelector('.views .metric-value').textContent, /93\.4k/);
-  assert.match(root.querySelector('.engagements .metric-value').textContent, /4,100/);
-  assert.match(root.querySelector('.verified-followers .metric-value').textContent, /2,400/);
+  assert.equal(root.querySelector('.views'), null);
+  assert.equal(root.querySelector('.engagements'), null);
+  assert.equal(root.querySelector('.verified-followers'), null);
+  assert.equal(root.querySelectorAll('.metrics > div').length, 1);
   hud.destroy();
 });
 

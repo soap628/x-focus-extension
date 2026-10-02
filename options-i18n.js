@@ -1,4 +1,11 @@
 const EN = {
+  '返回 X ↗': 'Return to X ↗', '账号与目标': 'Account & goals',
+  '浏览自己的主页后自动更新；切换页面会保留最近读数。': 'Updates when you visit your profile. Your latest reading stays available across pages.',
+  '仅含浏览时采集到的本人帖子，点击可回到原帖。': 'Your posts observed while browsing. Select a post to open it on X.',
+  '空白保留已有记录，0 表示实际为零。粉丝数不会影响经验。': 'Blank keeps the saved reading; 0 means a measured zero. Followers do not affect EXP.',
+  '查看原帖 ↗': 'View post ↗', '浏览自己的帖子时，会逐步保存帖子记录。': 'Browse your own posts to build your post history.',
+  '尚无可识别数据。请打开本人主页，等待粉丝数加载后重试。': 'No readable data yet. Open your profile, wait for the follower count to load, and try again.',
+
   '本地存档': 'Local backups', '自动文件备份': 'Automatic file backups', '最近写入电脑': 'Last completed save', '存档位置': 'Backup location', '预计下次文件备份': 'Next file backup', '待排期': 'Not scheduled yet',
   '发帖、回复和经验实时保存在本机扩展中，关闭自动文件备份不会停止记账。': 'Posts, replies and EXP are saved to the local extension as they are recorded. Turning off automatic file backups does not stop recording.',
   '独立 JSON 文件保存在下载目录的 X-Focus/账号 文件夹，并会出现在 Edge 下载列表。自动模式最多每 24 小时下载一次，失败也不会频繁重试；随时可以手动备份。文件在卸载扩展后仍保留，不上传服务器。': 'Separate JSON files are saved in Downloads/X-Focus/account and appear in the Edge downloads list. Automatic mode downloads at most once every 24 hours, without frequent retries after failures. You can back up manually at any time. Files remain after uninstalling and are never uploaded.',
